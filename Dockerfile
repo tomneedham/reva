@@ -8,6 +8,7 @@ RUN git clone https://github.com/cernbox/reva.git /go/src/reva -b owncloud
 # RUN cd /go/src/reva/reva-server && glide install && go build && go install
 RUN cd /go/src/reva/reva-server && go get ./... && go build && go install
 RUN cd /go/src/reva/reva-cli && go get ./... && go build && go install
+RUn mdkir /tmp/owncloud-data
 # RUN cd /go/src/reva/reva-cli && glide install && go build && go install
 # RUN cd /go/src/reva/oc-proxy && glide install && go build && go install
 
