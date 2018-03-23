@@ -15,12 +15,12 @@ import (
 	//"github.com/cernbox/reva/api/linkfs"
 	"github.com/cernbox/reva/api/localfs"
 	"github.com/cernbox/reva/api/mount"
-	"github.com/cernbox/reva/api/oclinkmanager"
+	//	"github.com/cernbox/reva/api/oclinkmanager"
 	"github.com/cernbox/reva/api/tokenmanager"
 	"github.com/cernbox/reva/api/vfs"
 	"github.com/cernbox/reva/reva-server/svcs/authsvc"
 	"github.com/cernbox/reva/reva-server/svcs/previewsvc"
-	"github.com/cernbox/reva/reva-server/svcs/sharesvc"
+	//"github.com/cernbox/reva/reva-server/svcs/sharesvc"
 	"github.com/cernbox/reva/reva-server/svcs/storagesvc"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -56,7 +56,7 @@ func init() {
 	flag.String("config", "", "Configuration file to use")
 
 	flag.String("ldaphostname", "localhost", "LDAP hostname")
-	flag.Int("ldapport", 3306, "LDAP port")
+	flag.Int("ldapport", 636, "LDAP port")
 	flag.String("ldapbindusername", "admin", "LDAP bind username")
 	flag.String("ldapbindpassword", "admin", "LDAP bind password")
 	flag.String("ldapfilter", "(samaccountname=%s)", "LDAP filter")
@@ -109,7 +109,7 @@ func main() {
 	// register a link filesystem
 	vFS := vfs.NewVFS(logger)
 
-	linkManager, err := oclinkmanager.New(viper.GetString("linkdbusername"), viper.GetString("linkdbpassword"), viper.GetString("linkdbhostname"), uint64(viper.GetInt("linkdbport")), viper.GetString("linkdbname"), vFS)
+	//linkManager, err := oclinkmanager.New(viper.GetString("linkdbusername"), viper.GetString("linkdbpassword"), viper.GetString("linkdbhostname"), uint64(viper.GetInt("linkdbport")), viper.GetString("linkdbname"), vFS)
 	if err != nil {
 		panic(fmt.Errorf("fatal error connecting to db: %s", err))
 	}
@@ -151,7 +151,7 @@ func main() {
 
 	api.RegisterAuthServer(server, authsvc.New(authManager, tokenManager))
 	api.RegisterStorageServer(server, storagesvc.New(vFS))
-	api.RegisterShareServer(server, sharesvc.New(linkManager))
+	//api.RegisterShareServer(server, sharesvc.New(linkManager))
 	api.RegisterPreviewServer(server, previewsvc.New())
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", viper.GetInt("port")))
