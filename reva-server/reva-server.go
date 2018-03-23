@@ -8,7 +8,8 @@ import (
 	"net/http"
 
 	"github.com/cernbox/reva/api"
-	"github.com/cernbox/reva/api/authmanager"
+	"github.com/cernbox/reva/api/noauthmanager"
+	//"github.com/cernbox/reva/api/authmanager"
 	//"github.com/cernbox/reva/api/eosfs"
 	//"github.com/cernbox/reva/api/eosfs/eosclient"
 	//"github.com/cernbox/reva/api/homefs"
@@ -114,7 +115,7 @@ func main() {
 		panic(fmt.Errorf("fatal error connecting to db: %s", err))
 	}
 
-	authManager := authmanager.New(viper.GetString("ldaphostname"), viper.GetInt("ldapport"), viper.GetString("ldapbasedn"), viper.GetString("ldapfilter"), viper.GetString("ldapbindusername"), viper.GetString("ldapbindpassword"))
+	authManager := noauthmanager.New()
 	tokenManager := tokenmanager.New("secreto")
 
 	//linksFS := linkfs.NewLinkFS(vFS, linkManager, logger)
