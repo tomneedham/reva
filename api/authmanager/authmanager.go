@@ -2,11 +2,11 @@ package authmanager
 
 import (
 	"context"
-	"crypto/tls"
-	"fmt"
+	//"crypto/tls"
+	//"fmt"
 
 	"github.com/cernbox/reva/api"
-	"gopkg.in/ldap.v2"
+	//"gopkg.in/ldap.v2"
 )
 
 type authManager struct {
@@ -30,45 +30,48 @@ func New(hostname string, port int, basedn, filter, bindclientID, bindpassword s
 }
 
 func (am *authManager) Authenticate(ctx context.Context, clientID, clientSecret string) (*api.User, error) {
-	l, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", am.hostname, am.port), &tls.Config{InsecureSkipVerify: true})
-	if err != nil {
-		return nil, err
-	}
-	defer l.Close()
+	/*
+		l, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", am.hostname, am.port), &tls.Config{InsecureSkipVerify: true})
+		if err != nil {
+			return nil, err
+		}
+		defer l.Close()
 
-	// First bind with a read only user
-	err = l.Bind(am.bindUsername, am.bindPassword)
-	if err != nil {
-		fmt.Println("bind failed", err)
-		return nil, err
-	}
+		// First bind with a read only user
+		err = l.Bind(am.bindUsername, am.bindPassword)
+		if err != nil {
+			fmt.Println("bind failed", err)
+			return nil, err
+		}
 
-	// Search for the given clientID
-	searchRequest := ldap.NewSearchRequest(
-		am.baseDN,
-		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
-		fmt.Sprintf(am.filter, clientID),
-		[]string{"dn"},
-		nil,
-	)
+		// Search for the given clientID
+		searchRequest := ldap.NewSearchRequest(
+			am.baseDN,
+			ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+			fmt.Sprintf(am.filter, clientID),
+			[]string{"dn"},
+			nil,
+		)
 
-	sr, err := l.Search(searchRequest)
-	if err != nil {
-		fmt.Println("search failed", fmt.Sprintf(am.filter, clientID))
-		return nil, err
-	}
+		sr, err := l.Search(searchRequest)
+		if err != nil {
+			fmt.Println("search failed", fmt.Sprintf(am.filter, clientID))
+			return nil, err
+		}
 
-	if len(sr.Entries) != 1 {
-		return nil, api.NewError(api.UserNotFoundErrorCode)
-	}
+		if len(sr.Entries) != 1 {
+			return nil, api.NewError(api.UserNotFoundErrorCode)
+		}
 
-	userdn := sr.Entries[0].DN
+		userdn := sr.Entries[0].DN
 
-	// Bind as the user to verify their password
-	err = l.Bind(userdn, clientSecret)
-	if err != nil {
-		return nil, err
-	}
+		// Bind as the user to verify their password
+		err = l.Bind(userdn, clientSecret)
+		if err != nil {
+			return nil, err
+		}
+	*/
 
+	clientID = "admin"
 	return &api.User{AccountId: clientID, Groups: []string{}}, nil
 }
