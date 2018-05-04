@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/codegangsta/cli"
 	"github.com/cernbox/reva/reva-cli/cmds"
+	"github.com/codegangsta/cli"
 )
 
 func main() {

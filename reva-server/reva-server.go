@@ -1,22 +1,18 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
+	"plugin"
+	"reflect"
+
+	"github.com/cernbox/gohub/goconfig"
+	"github.com/cernbox/gohub/gologger"
 
 	"github.com/cernbox/reva/api"
-	"github.com/cernbox/reva/api/authmanager"
-	"github.com/cernbox/reva/api/eosfs"
-	"github.com/cernbox/reva/api/eosfs/eosclient"
-	"github.com/cernbox/reva/api/homefs"
 	"github.com/cernbox/reva/api/linkfs"
-	"github.com/cernbox/reva/api/localfs"
 	"github.com/cernbox/reva/api/mount"
-	"github.com/cernbox/reva/api/oclinkmanager"
-	"github.com/cernbox/reva/api/tokenmanager"
 	"github.com/cernbox/reva/api/vfs"
 	"github.com/cernbox/reva/reva-server/svcs/authsvc"
 	"github.com/cernbox/reva/reva-server/svcs/previewsvc"
@@ -36,96 +32,52 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/satori/go.uuid"
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
-func init() {
-	viper.SetDefault("port", 1093)
-	viper.SetDefault("signkey", "defaults are evil")
-	viper.SetDefault("applog", "stderr")
-
-	viper.SetConfigName("reva")
-	viper.AddConfigPath("./")
-	viper.AddConfigPath("/etc/reva")
-
-	flag.Int("port", 1093, "Listen port for gRPC connections")
-	flag.String("signkey", "defaults are evil", "Key to sign JWT authentication tokens")
-	flag.String("applog", "stderr", "File where to log application data")
-	flag.String("config", "", "Configuration file to use")
-
-	flag.String("ldaphostname", "localhost", "LDAP hostname")
-	flag.Int("ldapport", 3306, "LDAP port")
-	flag.String("ldapbindusername", "admin", "LDAP bind username")
-	flag.String("ldapbindpassword", "admin", "LDAP bind password")
-	flag.String("ldapfilter", "(samaccountname=%s)", "LDAP filter")
-	flag.String("ldapbasedn", "OU=Users,OU=Organic Units,DC=cern,DC=ch", "LDAP base dn")
-
-	flag.String("linkdbhostname", "playground.cern.ch", "Database hostname")
-	flag.Int("linkdbport", 3306, "Database port")
-	flag.String("linkdbusername", "admin", "Database username")
-	flag.String("linkdbpassword", "admin", "Database password")
-	flag.String("linkdbname", "cernbox9", "Database name")
-
-	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
-	pflag.Parse()
-	viper.BindPFlags(pflag.CommandLine)
-}
-
 func main() {
-	if viper.GetString("config") != "" {
-		viper.SetConfigFile(viper.GetString("config"))
-	}
+	gc := goconfig.New()
+	gc.SetConfigName("reva-server")
+	gc.AddConfigurationPaths("/etc/reva-server")
+	gc.Add("tcp-address", "localhost:9999", "tcp address to listen for connections.")
+	gc.Add("sign-key", "bar", "the key to sign the JWT token.")
+	gc.Add("app-log", "stderr", "file to log application information")
+	gc.Add("http-log", "stderr", "file to log http log information")
+	gc.Add("log-level", "info", "log level to use (debug, info, warn, error)")
+	gc.Add("tls-cert", "/etc/grid-security/hostcert.pem", "TLS certificate to encrypt connections.")
+	gc.Add("tls-key", "/etc/grid-security/hostkey.pem", "TLS private key to encrypt connections.")
+	gc.Add("tls-enable", false, "Enable TLS for encrypting connections.")
+	gc.Add("storage-plugin", "/usr/lib/reva/storage-plugin-eos.so", "location of the shared object containing the Storage interface implementation.")
+	gc.Add("authmanager-plugin", "/usr/lib/reva/authmanager-plugin-ldap.so", "location of the shared object containing the AuthManager interface implementation.")
+	gc.Add("tokenmanager-plugin", "/usr/lib/reva/tokenmanager-plugin-jwt.so", "location of the shared object containing the TokenManager interface implementation.")
+	//	gc.Add("sharemanager-plugin", "/usr/lib/reva/sharemanager-plugin-memory.so", "location of the shared object containing the ShareManager interface implementation.")
+	gc.Add("publiclinkmanager-plugin", "/usr/lib/reva/publiclinkmanager-plugin-memory.so", "location of the shared object containing the ShareManager interface implementation.")
 
-	err := viper.ReadInConfig()
-	if err != nil {
-		panic(fmt.Errorf("fatal error reading config file: %s", err))
-	}
+	gc.BindFlags()
+	gc.ReadConfig()
 
-	config := zap.NewProductionConfig()
-	config.OutputPaths = []string{viper.GetString("applog")}
-	config.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	logger, _ := config.Build()
+	registerPluginConfigs(gc)
 
-	localStorage := localfs.New(&localfs.Options{Namespace: "/home/labkode/go/src/github.com/cernbox/reva", Logger: logger})
-	localMount := mount.New(localStorage, "/local")
+	gc.BindFlags()  // rebind plugins flags.
+	gc.ReadConfig() // reload config to take into account plugin config parameters.
+	gc.PrintConfig()
+	//gc.ExecuteActionFlagsIfAny()
 
-	localTempStorage := localfs.New(&localfs.Options{Namespace: "/tmp", Logger: logger})
-	localTempMount := mount.New(localTempStorage, "/tmp")
+	logger := gologger.New(gc.GetString("log-level"), gc.GetString("app-log"))
 
-	// register an eos filesytem
-	eosClient, err := eosclient.New(&eosclient.Options{URL: "root://eosuat.cern.ch", EnableLogging: true})
-	if err != nil {
-		panic(err)
-	}
+	storage := getStoragePlugin(gc, logger)
+	tokenManager := getTokenManagerPlugin(gc, logger)
+	authManager := getAuthManagerPlugin(gc, logger)
 
-	eosFS := eosfs.New(&eosfs.Options{EosClient: eosClient, Namespace: "/eos/scratch/user/", Logger: logger})
-	homeFS := homefs.New(eosFS)
-	homeMount := mount.New(homeFS, "/home")
+	virtualStorage := vfs.NewVFS(logger)
+	publicLinkManager := getPublicLinkManagerPlugin(gc, logger, virtualStorage)
 
-	eosLetterFS := eosfs.New(&eosfs.Options{EosClient: eosClient, Namespace: "/eos/", Logger: logger})
-	eosLetterMount := mount.New(eosLetterFS, "/eos")
-
-	// register a link filesystem
-	vFS := vfs.NewVFS(logger)
-
-	linkManager, err := oclinkmanager.New(viper.GetString("linkdbusername"), viper.GetString("linkdbpassword"), viper.GetString("linkdbhostname"), uint64(viper.GetInt("linkdbport")), viper.GetString("linkdbname"), vFS)
-	if err != nil {
-		panic(fmt.Errorf("fatal error connecting to db: %s", err))
-	}
-
-	authManager := authmanager.New(viper.GetString("ldaphostname"), viper.GetInt("ldapport"), viper.GetString("ldapbasedn"), viper.GetString("ldapfilter"), viper.GetString("ldapbindusername"), viper.GetString("ldapbindpassword"))
-	tokenManager := tokenmanager.New("secreto")
-
-	linksFS := linkfs.NewLinkFS(vFS, linkManager, logger)
+	linksFS := linkfs.NewLinkFS(virtualStorage, publicLinkManager, logger)
 	linkMount := mount.New(linksFS, "/publiclinks")
 
-	vFS.AddMount(context.Background(), localMount)
-	vFS.AddMount(context.Background(), localTempMount)
-	vFS.AddMount(context.Background(), homeMount)
-	vFS.AddMount(context.Background(), eosLetterMount)
-	vFS.AddMount(context.Background(), linkMount)
+	m := mount.New(storage, "/eos")
+	virtualStorage.AddMount(context.Background(), m)
+	virtualStorage.AddMount(context.Background(), linkMount)
 
 	server := grpc.NewServer(
 		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(
@@ -151,19 +103,19 @@ func main() {
 	http.Handle("/metrics", promhttp.Handler())
 
 	api.RegisterAuthServer(server, authsvc.New(authManager, tokenManager))
-	api.RegisterStorageServer(server, storagesvc.New(vFS))
-	api.RegisterShareServer(server, sharesvc.New(linkManager))
+	api.RegisterStorageServer(server, storagesvc.New(virtualStorage))
+	api.RegisterShareServer(server, sharesvc.New(publicLinkManager))
 	api.RegisterPreviewServer(server, previewsvc.New())
 
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", viper.GetInt("port")))
+	lis, err := net.Listen("tcp", gc.GetString("tcp-address"))
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		logger.Fatal("failed to listen", zap.Error(err))
 	}
 	go func() {
 		http.ListenAndServe(":1092", nil)
 	}()
 
-	log.Fatalf("failed to listen: %v", server.Serve(lis))
+	server.Serve(lis)
 }
 
 func getAuthFunc(tm api.TokenManager) func(context.Context) (context.Context, error) {
@@ -185,4 +137,129 @@ func getAuthFunc(tm api.TokenManager) func(context.Context) (context.Context, er
 		newCtx := api.ContextSetUser(ctx, user)
 		return newCtx, nil
 	}
+}
+
+func registerPluginConfigs(gc *goconfig.GoConfig) error {
+	sharedObjects := []string{
+		gc.GetString("storage-plugin"),
+		gc.GetString("tokenmanager-plugin"),
+		gc.GetString("authmanager-plugin"),
+		gc.GetString("publiclinkmanager-plugin"),
+	}
+
+	for _, so := range sharedObjects {
+		plug, err := plugin.Open(so)
+		if err != nil {
+			return err
+		}
+
+		regF, err := plug.Lookup("RegisterConfig")
+		if err != nil {
+			return err
+		}
+
+		registerFunc, ok := regF.(func(*goconfig.GoConfig))
+		if !ok {
+			return fmt.Errorf("unexpected type from symbol")
+		}
+
+		registerFunc(gc)
+	}
+	return nil
+}
+
+func getStoragePlugin(gc *goconfig.GoConfig, logger *zap.Logger) api.Storage {
+	so := gc.GetString("storage-plugin")
+	plug, err := plugin.Open(so)
+	if err != nil {
+		panic(err)
+	}
+
+	newFunc, err := plug.Lookup("New")
+	if err != nil {
+		panic(err)
+	}
+
+	newStorageFunc, ok := newFunc.(func(*goconfig.GoConfig, *zap.Logger) (api.Storage, error))
+	if !ok {
+		panic(fmt.Errorf("unexpected type from symbol: %s,", reflect.TypeOf(newFunc)))
+	}
+
+	storage, err := newStorageFunc(gc, logger)
+	if err != nil {
+		panic(err)
+	}
+	return storage
+}
+
+func getAuthManagerPlugin(gc *goconfig.GoConfig, logger *zap.Logger) api.AuthManager {
+	so := gc.GetString("authmanager-plugin")
+	plug, err := plugin.Open(so)
+	if err != nil {
+		panic(err)
+	}
+
+	newFunc, err := plug.Lookup("New")
+	if err != nil {
+		panic(err)
+	}
+
+	newCastedFunc, ok := newFunc.(func(*goconfig.GoConfig, *zap.Logger) (api.AuthManager, error))
+	if !ok {
+		panic(fmt.Errorf("unexpected type from symbol"))
+	}
+
+	authManager, err := newCastedFunc(gc, logger)
+	if err != nil {
+		panic(err)
+	}
+	return authManager
+}
+
+func getTokenManagerPlugin(gc *goconfig.GoConfig, logger *zap.Logger) api.TokenManager {
+	so := gc.GetString("tokenmanager-plugin")
+	plug, err := plugin.Open(so)
+	if err != nil {
+		panic(err)
+	}
+
+	newFunc, err := plug.Lookup("New")
+	if err != nil {
+		panic(err)
+	}
+
+	newCastedFunc, ok := newFunc.(func(*goconfig.GoConfig, *zap.Logger) (api.TokenManager, error))
+	if !ok {
+		panic(fmt.Errorf("unexpected type from symbol"))
+	}
+
+	tokenManager, err := newCastedFunc(gc, logger)
+	if err != nil {
+		panic(err)
+	}
+	return tokenManager
+}
+
+func getPublicLinkManagerPlugin(gc *goconfig.GoConfig, logger *zap.Logger, vs api.VirtualStorage) api.PublicLinkManager {
+	so := gc.GetString("publiclinkmanager-plugin")
+	plug, err := plugin.Open(so)
+	if err != nil {
+		panic(err)
+	}
+
+	newFunc, err := plug.Lookup("New")
+	if err != nil {
+		panic(err)
+	}
+
+	newCastedFunc, ok := newFunc.(func(*goconfig.GoConfig, *zap.Logger, api.VirtualStorage) (api.PublicLinkManager, error))
+	if !ok {
+		panic(fmt.Errorf("unexpected type from symbol: %s", reflect.TypeOf(newFunc)))
+	}
+
+	publicLinkManager, err := newCastedFunc(gc, logger, vs)
+	if err != nil {
+		panic(err)
+	}
+	return publicLinkManager
 }

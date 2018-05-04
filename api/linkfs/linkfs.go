@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cernbox/reva/api"
+	"github.com/grpc-ecosystem/go-grpc-middleware/tags/zap"
+	"go.uber.org/zap"
 	"io"
 	"path"
 	"strings"
-
-	"github.com/grpc-ecosystem/go-grpc-middleware/tags/zap"
-	"github.com/cernbox/reva/api"
-	"go.uber.org/zap"
 )
 
 type linkStorage struct {
