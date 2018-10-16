@@ -3122,79 +3122,94 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	searchTarget := p.getSearchTarget(search)
-
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
-	url := fmt.Sprintf("%s/api/v1/search/%s", p.cboxGroupDaemonURI, search)
-	p.logger.Info("jeje", zap.String("uri", p.cboxGroupDaemonURI), zap.String("url", url))
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		p.logger.Error("", zap.Error(err))
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.cboxGroupDaemonSecret))
-	res, err := client.Do(req)
-	if err != nil {
-		p.logger.Error("", zap.Error(err))
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if res.StatusCode != http.StatusOK {
-		p.logger.Error("error calling cboxgroupd search", zap.Int("status", res.StatusCode))
-		w.WriteHeader(res.StatusCode)
-		return
-
-	}
-
-	searchEntries := []*searchEntry{}
-	body, err := ioutil.ReadAll(res.Body)
-	defer res.Body.Close()
-	if err != nil {
-		p.logger.Error("", zap.Error(err))
-		w.WriteHeader(res.StatusCode)
-		return
-	}
-
-	err = json.Unmarshal(body, &searchEntries)
-	if err != nil {
-		p.logger.Error("", zap.Error(err))
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
 
 	exactUserEntries := []*OCSShareeEntry{}
 	inexactUserEntries := []*OCSShareeEntry{}
 	exactGroupEntries := []*OCSShareeEntry{}
 	inexactGroupEntries := []*OCSShareeEntry{}
-	for _, se := range searchEntries {
-		shareType := p.getShareType(se.AccountType)
+
+	if strings.Contains(search, "@") {
+
+		//TODO check if remote server is trusted
+
 		ocsEntry := &OCSShareeEntry{
-			Value: &OCSShareeEntryValue{ShareType: p.getShareType(se.AccountType), ShareWith: se.CN},
+			Value: &OCSShareeEntryValue{ShareType: ShareTypeOCM, ShareWith: search},
+		}
+		ocsEntry.Label = fmt.Sprintf("%s (external)", search)
+		exactUserEntries = append(exactUserEntries, ocsEntry)
+
+	} else {
+
+		searchTarget := p.getSearchTarget(search)
+
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+		client := &http.Client{Transport: tr}
+		url := fmt.Sprintf("%s/api/v1/search/%s", p.cboxGroupDaemonURI, search)
+		p.logger.Info("jeje", zap.String("uri", p.cboxGroupDaemonURI), zap.String("url", url))
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			p.logger.Error("", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", p.cboxGroupDaemonSecret))
+		res, err := client.Do(req)
+		if err != nil {
+			p.logger.Error("", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 
-		if shareType == ShareTypeUser {
-			ocsEntry.Label = fmt.Sprintf("%s (%s)", se.DisplayName, se.CN)
-			if se.CN == searchTarget {
-				exactUserEntries = append(exactUserEntries, ocsEntry)
-			} else {
-				inexactUserEntries = append(inexactUserEntries, ocsEntry)
-			}
-
-		} else { // asumme group
-			ocsEntry.Label = se.CN // owncloud will append (group) at the end
-			if se.CN == searchTarget {
-				exactGroupEntries = append(exactGroupEntries, ocsEntry)
-			} else {
-				inexactGroupEntries = append(inexactGroupEntries, ocsEntry)
-			}
+		if res.StatusCode != http.StatusOK {
+			p.logger.Error("error calling cboxgroupd search", zap.Int("status", res.StatusCode))
+			w.WriteHeader(res.StatusCode)
+			return
 
 		}
 
+		searchEntries := []*searchEntry{}
+		body, err := ioutil.ReadAll(res.Body)
+		defer res.Body.Close()
+		if err != nil {
+			p.logger.Error("", zap.Error(err))
+			w.WriteHeader(res.StatusCode)
+			return
+		}
+
+		err = json.Unmarshal(body, &searchEntries)
+		if err != nil {
+			p.logger.Error("", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		for _, se := range searchEntries {
+			shareType := p.getShareType(se.AccountType)
+			ocsEntry := &OCSShareeEntry{
+				Value: &OCSShareeEntryValue{ShareType: p.getShareType(se.AccountType), ShareWith: se.CN},
+			}
+
+			if shareType == ShareTypeUser {
+				ocsEntry.Label = fmt.Sprintf("%s (%s)", se.DisplayName, se.CN)
+				if se.CN == searchTarget {
+					exactUserEntries = append(exactUserEntries, ocsEntry)
+				} else {
+					inexactUserEntries = append(inexactUserEntries, ocsEntry)
+				}
+
+			} else { // asumme group
+				ocsEntry.Label = se.CN // owncloud will append (group) at the end
+				if se.CN == searchTarget {
+					exactGroupEntries = append(exactGroupEntries, ocsEntry)
+				} else {
+					inexactGroupEntries = append(inexactGroupEntries, ocsEntry)
+				}
+
+			}
+
+		}
 	}
 
 	exact := &OCSShareeExact{Users: exactUserEntries, Groups: exactGroupEntries, Remotes: []*OCSShareeEntry{}}
@@ -3311,6 +3326,59 @@ func (p *proxy) createFolderShare(ctx context.Context, newShare *NewShareOCSRequ
 	w.Write(encoded)
 
 }
+
+func (p *proxy) createOCMShare(ctx context.Context, newShare *NewShareOCSRequest, readOnly bool, expiration int64, w http.ResponseWriter, r *http.Request) {
+	recipientType := reva_api.ShareRecipient_USER
+	if newShare.ShareType == ShareTypeGroup {
+		recipientType = reva_api.ShareRecipient_GROUP
+	}
+
+	recipient := &reva_api.ShareRecipient{
+		Identity: newShare.ShareWith,
+		Type:     recipientType,
+	}
+
+	newFolderShareReq := &reva_api.NewFolderShareReq{
+		Path:      newShare.Path,
+		ReadOnly:  readOnly,
+		Recipient: recipient,
+	}
+
+	gCtx := GetContextWithAuth(ctx)
+	folderShareRes, err := p.getShareClient().AddFolderShare(gCtx, newFolderShareReq)
+	if err != nil {
+		p.logger.Error("", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	if folderShareRes.Status != reva_api.StatusCode_OK {
+		p.writeError(folderShareRes.Status, w, r)
+		return
+	}
+
+	folderShare := folderShareRes.FolderShare
+	ocsShare, err := p.folderShareToOCSShare(ctx, folderShare)
+	if err != nil {
+		p.logger.Error("", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	meta := &ResponseMeta{Status: "ok", StatusCode: 200}
+	payload := &OCSPayload{Meta: meta, Data: ocsShare}
+	ocsRes := &OCSResponse{OCS: payload}
+	encoded, err := json.Marshal(ocsRes)
+	if err != nil {
+		p.logger.Error("", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(encoded)
+
+}
+
 func (p *proxy) createShare(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	newShare := &NewShareOCSRequest{}
@@ -3348,6 +3416,8 @@ func (p *proxy) createShare(w http.ResponseWriter, r *http.Request) {
 			shareType = ShareTypeGroup
 		} else if shareTypeString == "3" {
 			shareType = ShareTypePublicLink
+		} else if shareTypeString == "4" {
+			shareType = ShareTypeOCM
 		}
 		newShare.ShareType = shareType
 
@@ -3435,6 +3505,9 @@ func (p *proxy) createShare(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if newShare.ShareType == ShareTypeUser || newShare.ShareType == ShareTypeGroup {
 		p.createFolderShare(ctx, newShare, readOnly, w, r)
+		return
+	} else if newShare.ShareType == ShareTypeOCM {
+		p.createOCMShare(ctx, newShare, readOnly, expiration, w, r)
 		return
 	} else {
 		w.WriteHeader(http.StatusNotImplemented)
@@ -4421,6 +4494,7 @@ const (
 	ShareTypeUser       ShareType = 0
 	ShareTypeGroup                = 1
 	ShareTypePublicLink           = 3
+	ShareTypeOCM                  = 4
 
 	PermissionRead      Permission = 1
 	PermissionReadWrite Permission = 15
