@@ -3327,37 +3327,25 @@ func (p *proxy) createFolderShare(ctx context.Context, newShare *NewShareOCSRequ
 
 }
 
-func (p *proxy) createOCMShare(ctx context.Context, newShare *NewShareOCSRequest, readOnly bool, expiration int64, w http.ResponseWriter, r *http.Request) {
-	recipientType := reva_api.ShareRecipient_USER
-	if newShare.ShareType == ShareTypeGroup {
-		recipientType = reva_api.ShareRecipient_GROUP
-	}
-
-	recipient := &reva_api.ShareRecipient{
-		Identity: newShare.ShareWith,
-		Type:     recipientType,
-	}
-
-	newFolderShareReq := &reva_api.NewFolderShareReq{
-		Path:      newShare.Path,
-		ReadOnly:  readOnly,
-		Recipient: recipient,
-	}
-
+func (p *proxy) createOCMShare(ctx context.Context, newShare *NewShareOCSRequest, w http.ResponseWriter, r *http.Request) {
 	gCtx := GetContextWithAuth(ctx)
-	folderShareRes, err := p.getShareClient().AddFolderShare(gCtx, newFolderShareReq)
+	newOCMReq := &reva_api.NewOCMReq{
+		Path:      newShare.Path,
+		Recipient: newShare.ShareWith,
+	}
+	ocmRes, err := p.getShareClient().AddOCMShare(gCtx, newOCMReq)
 	if err != nil {
 		p.logger.Error("", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	if folderShareRes.Status != reva_api.StatusCode_OK {
-		p.writeError(folderShareRes.Status, w, r)
+	if ocmRes.Status != reva_api.StatusCode_OK {
+		p.writeError(ocmRes.Status, w, r)
 		return
 	}
 
-	folderShare := folderShareRes.FolderShare
-	ocsShare, err := p.folderShareToOCSShare(ctx, folderShare)
+	ocmShare := ocmRes.OcmShare
+	ocsShare, err := p.ocmToOCSShare(ctx, ocmShare)
 	if err != nil {
 		p.logger.Error("", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
@@ -3507,7 +3495,7 @@ func (p *proxy) createShare(w http.ResponseWriter, r *http.Request) {
 		p.createFolderShare(ctx, newShare, readOnly, w, r)
 		return
 	} else if newShare.ShareType == ShareTypeOCM {
-		p.createOCMShare(ctx, newShare, readOnly, expiration, w, r)
+		p.createOCMShare(ctx, newShare, w, r)
 		return
 	} else {
 		w.WriteHeader(http.StatusNotImplemented)
@@ -3561,6 +3549,16 @@ func (p *proxy) getShares(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ocsShares = append(ocsShares, folderShares...)
+
+	// ocmshares, err := p.getOCMShares(ctx)
+	// if err != nil {
+	// 	p.logger.Error("", zap.Error(err))
+	// 	w.WriteHeader(http.StatusInternalServerError)
+	// 	return
+
+	// }
+
+	// ocsShares = append(ocsShares, ocmshares...)
 
 	// TODO(labkode): do filtering reva side
 	// if path is set, filter to only shares from that path
@@ -3670,6 +3668,43 @@ func (p *proxy) getReceivedFolderShares(ctx context.Context) ([]*OCSShare, error
 	}
 	return ocsShares, nil
 
+}
+
+func (p *proxy) getOCMShares(ctx context.Context) ([]*OCSShare, error) {
+	gCtx := GetContextWithAuth(ctx)
+	stream, err := p.getShareClient().ListOCMShares(gCtx, &reva_api.ListOCMSharesReq{})
+	if err != nil {
+		return nil, err
+	}
+
+	ocmShares := []*reva_api.OCMShare{}
+	for {
+		res, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if res.Status != reva_api.StatusCode_OK {
+			return nil, err
+		}
+		ocmShares = append(ocmShares, res.OcmShare)
+
+	}
+
+	ocsShares := []*OCSShare{}
+	for _, share := range ocmShares {
+		ocsShare, err := p.ocmToOCSShare(ctx, share)
+		if err != nil {
+			p.logger.Warn("cannot convert folder share to ocs share", zap.Error(err), zap.String("folder share", fmt.Sprintf("%+v", share)))
+			continue
+		}
+		ocsShares = append(ocsShares, ocsShare)
+	}
+	return ocsShares, nil
 }
 
 func (p *proxy) getFolderShares(ctx context.Context) ([]*OCSShare, error) {
@@ -3801,6 +3836,48 @@ func (p *proxy) folderShareToOCSShare(ctx context.Context, share *reva_api.Folde
 		UIDOwner:             owner,
 		ShareWith:            &shareWith,
 		ShareWithDisplayName: shareWith,
+	}
+	return ocsShare, nil
+}
+func (p *proxy) ocmToOCSShare(ctx context.Context, share *reva_api.OCMShare) (*OCSShare, error) {
+	// TODO(labkode): harden check
+	user, _ := reva_api.ContextGetUser(ctx)
+	owner := user.AccountId
+
+	md, err := p.getCachedMetadata(ctx, share.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	var itemType ItemType = ItemTypeFolder
+
+	var mimeType = "httpd/unix-directory"
+	var permissions Permission
+	if share.ReadOnly {
+		permissions = PermissionRead
+	} else {
+		permissions = PermissionReadWrite
+	}
+
+	ocsShare := &OCSShare{
+		ShareType:            ShareTypeOCM,
+		ID:                   share.Id,
+		DisplayNameFileOwner: owner,
+		DisplayNameOwner:     owner,
+		FileSource:           md.Id,
+		FileTarget:           md.Path,
+		ItemSource:           md.Id,
+		ItemType:             itemType,
+		MimeType:             mimeType,
+		Name:                 md.Path,
+		Path:                 p.joinCBOXMappedPath(ctx, md.Path),
+		Permissions:          permissions,
+		ShareTime:            int(share.Mtime),
+		State:                ShareStateAccepted,
+		UIDFileOwner:         owner,
+		UIDOwner:             owner,
+		ShareWith:            &share.Recipient,
+		ShareWithDisplayName: share.Recipient,
 	}
 	return ocsShare, nil
 }

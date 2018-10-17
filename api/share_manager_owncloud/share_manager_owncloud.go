@@ -11,7 +11,9 @@ import (
 	"github.com/cernbox/reva/api"
 
 	"database/sql"
+
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/go-grpc-middleware/tags/zap"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
@@ -148,6 +150,31 @@ func (sm *shareManager) ListFolderShares(ctx context.Context) ([]*api.FolderShar
 	return shares, nil
 }
 
+func (sm *shareManager) ListOCMShares(ctx context.Context) ([]*api.OCMShare, error) {
+	l := ctx_zap.Extract(ctx)
+	u, err := getUserFromContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	dbShares, err := sm.getDBShares(ctx, u.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	shares := []*api.OCMShare{}
+	for _, dbShare := range dbShares {
+		share, err := sm.convertToOCMShare(ctx, dbShare)
+		if err != nil {
+			l.Error("", zap.Error(err))
+			//TODO(labkode): log error and continue
+			continue
+		}
+		shares = append(shares, share)
+
+	}
+	return shares, nil
+}
+
 func (sm *shareManager) UpdateFolderShare(ctx context.Context, id string, updateReadOnly, readOnly bool) (*api.FolderShare, error) {
 	l := ctx_zap.Extract(ctx)
 	u, err := getUserFromContext(ctx)
@@ -228,6 +255,7 @@ func (sm *shareManager) UpdateFolderShare(ctx context.Context, id string, update
 	l.Info("share commited on storage acl", zap.String("share_id", share.Id))
 	return share, nil
 }
+
 func (sm *shareManager) Unshare(ctx context.Context, id string) error {
 	l := ctx_zap.Extract(ctx)
 	u, err := getUserFromContext(ctx)
@@ -280,6 +308,38 @@ func (sm *shareManager) Unshare(ctx context.Context, id string) error {
 
 func (sm *shareManager) GetFolderShare(ctx context.Context, id string) (*api.FolderShare, error) {
 	l := ctx_zap.Extract(ctx)
+	dbShare, err := sm.GetShare(ctx, id)
+
+	if err != nil {
+		return nil, err
+	}
+
+	share, err := sm.convertToFolderShare(ctx, dbShare)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return nil, err
+	}
+	return share, nil
+}
+
+func (sm *shareManager) GetOCMShare(ctx context.Context, id string) (*api.OCMShare, error) {
+	l := ctx_zap.Extract(ctx)
+	dbShare, err := sm.GetShare(ctx, id)
+
+	if err != nil {
+		return nil, err
+	}
+
+	share, err := sm.convertToOCMShare(ctx, dbShare)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return nil, err
+	}
+	return share, nil
+}
+
+func (sm *shareManager) GetShare(ctx context.Context, id string) (*dbShare, error) {
+	l := ctx_zap.Extract(ctx)
 	u, err := getUserFromContext(ctx)
 	if err != nil {
 		l.Error("", zap.Error(err))
@@ -292,80 +352,21 @@ func (sm *shareManager) GetFolderShare(ctx context.Context, id string) (*api.Fol
 		return nil, err
 	}
 
-	share, err := sm.convertToFolderShare(ctx, dbShare)
-	if err != nil {
-		l.Error("", zap.Error(err))
-		return nil, err
-	}
-	return share, nil
+	return dbShare, nil
 }
 
 func (sm *shareManager) AddFolderShare(ctx context.Context, p string, recipient *api.ShareRecipient, readOnly bool) (*api.FolderShare, error) {
 	l := ctx_zap.Extract(ctx)
-	u, err := getUserFromContext(ctx)
-	if err != nil {
-		l.Error("", zap.Error(err))
-		return nil, err
-	}
-	md, err := sm.vfs.GetMetadata(ctx, p)
-	if err != nil {
-		l.Error("", zap.Error(err))
-		return nil, err
-	}
-
-	// TODO(labkode): use another error cde
-	if !md.IsDir {
-		return nil, api.NewError(api.StorageNotSupportedErrorCode)
-	}
-
-	itemType := "folder"
-
-	permissions := 15
-	if readOnly {
-		permissions = 1
-	}
-
-	var prefix string
-	var itemSource string
-	if md.MigId != "" {
-		prefix, itemSource = splitFileID(md.MigId)
-	} else {
-		prefix, itemSource = splitFileID(md.Id)
-	}
-
-	fileSource, err := strconv.ParseUint(itemSource, 10, 64)
-	if err != nil {
-		l.Error("", zap.Error(err))
-		return nil, err
-	}
-
 	shareType := 0 // user
 	if recipient.Type == api.ShareRecipient_GROUP {
 		shareType = 1
 	}
+	lastId, err := sm.AddShare(ctx, shareType, p, recipient.Identity, readOnly, "")
 
-	targetPath := path.Join("/", path.Base(p))
-
-	stmtString := "insert into oc_share set share_type=?,uid_owner=?,uid_initiator=?,item_type=?,fileid_prefix=?,item_source=?,file_source=?,permissions=?,stime=?,share_with=?,file_target=?"
-	stmtValues := []interface{}{shareType, u.AccountId, u.AccountId, itemType, prefix, itemSource, fileSource, permissions, time.Now().Unix(), recipient.Identity, targetPath}
-
-	stmt, err := sm.db.Prepare(stmtString)
 	if err != nil {
 		l.Error("", zap.Error(err))
 		return nil, err
 	}
-
-	result, err := stmt.Exec(stmtValues...)
-	if err != nil {
-		l.Error("", zap.Error(err))
-		return nil, err
-	}
-	lastId, err := result.LastInsertId()
-	if err != nil {
-		l.Error("", zap.Error(err))
-		return nil, err
-	}
-	l.Info("created oc share", zap.Int64("share_id", lastId))
 
 	share, err := sm.GetFolderShare(ctx, fmt.Sprintf("%d", lastId))
 	if err != nil {
@@ -388,6 +389,87 @@ func (sm *shareManager) AddFolderShare(ctx context.Context, p string, recipient 
 	l.Info("share commited on storage acl", zap.String("share_id", share.Id))
 
 	return share, nil
+}
+
+func (sm *shareManager) AddOCMShare(ctx context.Context, p string, recipient string) (*api.OCMShare, error) {
+	l := ctx_zap.Extract(ctx)
+	lastId, err := sm.AddShare(ctx, 4, p, recipient, true, uuid.New().String())
+
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return nil, err
+	}
+
+	share, err := sm.GetOCMShare(ctx, fmt.Sprintf("%d", lastId))
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return nil, err
+	}
+
+	l.Info("share commited on storage acl", zap.String("share_id", share.Id))
+
+	return share, nil
+}
+
+func (sm *shareManager) AddShare(ctx context.Context, shareType int, p string, recipient string, readOnly bool, token string) (int64, error) {
+	l := ctx_zap.Extract(ctx)
+	u, err := getUserFromContext(ctx)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return 0, err
+	}
+	md, err := sm.vfs.GetMetadata(ctx, p)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return 0, err
+	}
+
+	// TODO(labkode): use another error cde
+	if !md.IsDir {
+		return 0, api.NewError(api.StorageNotSupportedErrorCode)
+	}
+
+	itemType := "folder"
+
+	permissions := 15
+	if readOnly {
+		permissions = 1
+	}
+
+	var prefix string
+	var itemSource string
+	if md.MigId != "" {
+		prefix, itemSource = splitFileID(md.MigId)
+	} else {
+		prefix, itemSource = splitFileID(md.Id)
+	}
+
+	fileSource, err := strconv.ParseUint(itemSource, 10, 64)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return 0, err
+	}
+
+	targetPath := path.Join("/", path.Base(p))
+
+	stmtString := "insert into oc_share set share_type=?,uid_owner=?,uid_initiator=?,item_type=?,fileid_prefix=?,item_source=?,file_source=?,permissions=?,stime=?,share_with=?,file_target=?,token=?"
+	stmtValues := []interface{}{shareType, u.AccountId, u.AccountId, itemType, prefix, itemSource, fileSource, permissions, time.Now().Unix(), recipient, targetPath, token}
+
+	stmt, err := sm.db.Prepare(stmtString)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return 0, err
+	}
+
+	result, err := stmt.Exec(stmtValues...)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return 0, err
+	}
+	lastId, err := result.LastInsertId()
+
+	l.Info("created oc share", zap.Int64("share_id", lastId))
+	return lastId, err
 }
 
 /*
@@ -567,6 +649,36 @@ func (sm *shareManager) getDBShare(ctx context.Context, accountID, id string) (*
 
 }
 
+func (sm *shareManager) getDBOCMShare(ctx context.Context, accountID, id string) (*dbShare, error) { //TODO !!!!!
+	l := ctx_zap.Extract(ctx)
+	intID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		l.Error("cannot parse id to int64", zap.Error(err))
+		return nil, err
+	}
+
+	var (
+		uidOwner    string
+		shareWith   string
+		prefix      string
+		itemSource  string
+		shareType   int
+		stime       int
+		permissions int
+	)
+
+	query := "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type from oc_share where uid_owner=? and id=?"
+	if err := sm.db.QueryRow(query, accountID, id).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, api.NewError(api.FolderShareNotFoundErrorCode)
+		}
+		return nil, err
+	}
+	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType}
+	return dbShare, nil
+
+}
+
 func (sm *shareManager) getDBShares(ctx context.Context, accountID string) ([]*dbShare, error) {
 	query := "select id, coalesce(uid_owner, '') as uid_owner,  coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type from oc_share where uid_owner=? and (share_type=? or share_type=?) "
 	rows, err := sm.db.Query(query, accountID, 0, 1)
@@ -647,6 +759,21 @@ func (sm *shareManager) convertToFolderShare(ctx context.Context, dbShare *dbSha
 			Identity: dbShare.ShareWith,
 			Type:     recipientType,
 		},
+	}
+	return share, nil
+
+}
+
+func (sm *shareManager) convertToOCMShare(ctx context.Context, dbShare *dbShare) (*api.OCMShare, error) { //TODO
+
+	path := joinFileID(dbShare.Prefix, dbShare.ItemSource)
+	share := &api.OCMShare{
+		OwnerId:   dbShare.UIDOwner,
+		Id:        fmt.Sprintf("%d", dbShare.ID),
+		Mtime:     uint64(dbShare.STime),
+		Path:      path,
+		ReadOnly:  dbShare.Permissions == 1,
+		Recipient: dbShare.ShareWith,
 	}
 	return share, nil
 
