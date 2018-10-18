@@ -56,6 +56,7 @@ service Share {
 
 	// with user context, relative to user logged in
 	rpc AddOCMShare(NewOCMReq) returns (OCMShareResponse) {}
+	rpc GetOCMShare(ShareIDReq) returns (OCMShareResponse) {}
 	rpc ListOCMShares(ListOCMSharesReq) returns (stream OCMShareResponse) {}
 
 	// with user context, relative to the user logged in, in this case, the receiver

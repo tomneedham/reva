@@ -680,8 +680,8 @@ func (sm *shareManager) getDBOCMShare(ctx context.Context, accountID, id string)
 }
 
 func (sm *shareManager) getDBShares(ctx context.Context, accountID string) ([]*dbShare, error) {
-	query := "select id, coalesce(uid_owner, '') as uid_owner,  coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type from oc_share where uid_owner=? and (share_type=? or share_type=?) "
-	rows, err := sm.db.Query(query, accountID, 0, 1)
+	query := "select id, coalesce(uid_owner, '') as uid_owner,  coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type from oc_share where uid_owner=? and (share_type=? or share_type=? or share_type=?) "
+	rows, err := sm.db.Query(query, accountID, 0, 1, 4)
 	if err != nil {
 		return nil, err
 	}
