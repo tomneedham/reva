@@ -3550,15 +3550,15 @@ func (p *proxy) getShares(w http.ResponseWriter, r *http.Request) {
 
 	ocsShares = append(ocsShares, folderShares...)
 
-	ocmshares, err := p.getOCMShares(ctx)
-	if err != nil {
-		p.logger.Error("", zap.Error(err))
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+	// ocmshares, err := p.getOCMShares(ctx)
+	// if err != nil {
+	// 	p.logger.Error("", zap.Error(err))
+	// 	w.WriteHeader(http.StatusInternalServerError)
+	// 	return
 
-	}
+	// }
 
-	ocsShares = append(ocsShares, ocmshares...)
+	// ocsShares = append(ocsShares, ocmshares...)
 
 	// TODO(labkode): do filtering reva side
 	// if path is set, filter to only shares from that path
@@ -4418,6 +4418,8 @@ func (p *proxy) updateShare(w http.ResponseWriter, r *http.Request) {
 			shareType = ShareTypeGroup
 		} else if shareTypeString == "3" {
 			shareType = ShareTypePublicLink
+		} else if shareTypeString == "4" {
+			shareType = ShareTypeOCM
 		}
 		newShare.ShareType = shareType
 
