@@ -610,11 +610,11 @@ func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id stri
 	var query string
 
 	if len(groups) > 1 {
-		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, token from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=? or share_with in (?" + strings.Repeat(",?", len(groups)-1) + ")) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, coalesce(token, '') from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=? or share_with in (?" + strings.Repeat(",?", len(groups)-1) + ")) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
 		queryArgs = append(queryArgs, groupArgs...)
 		queryArgs = append(queryArgs, accountID)
 	} else {
-		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, token from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, coalesce(token, '') from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
 		queryArgs = append(queryArgs, accountID)
 	}
 
