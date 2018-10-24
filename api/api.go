@@ -157,6 +157,7 @@ type ShareManager interface {
 	AddOCMShare(ctx context.Context, path string, recipient string) (*OCMShare, error)
 	GetOCMShare(ctx context.Context, shareID string) (*OCMShare, error)
 	ListOCMShares(ctx context.Context) ([]*OCMShare, error)
+	GetReceivedOCMShare(ctx context.Context, shareID string) (*FolderShare, error)
 
 	ListReceivedShares(ctx context.Context) ([]*FolderShare, error)
 	GetReceivedFolderShare(ctx context.Context, shareID string) (*FolderShare, error)

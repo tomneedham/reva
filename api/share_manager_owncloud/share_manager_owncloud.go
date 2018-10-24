@@ -78,6 +78,40 @@ func (sm *shareManager) rejectShare(ctx context.Context, receiver, id string) er
 	return nil
 }
 
+func (sm *shareManager) GetReceivedOCMShare(ctx context.Context, id string) (*api.FolderShare, error) {
+	// talk to OCM database
+	// copy paste from GetReceivedFolderShare
+	// create convertToReceivedOCMShare
+
+	l := ctx_zap.Extract(ctx)
+	u, err := getUserFromContext(ctx)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return nil, err
+	}
+
+	dbShare, err := sm.getDBShareWithMe(ctx, u.AccountId, id)
+	if err != nil {
+		l.Error("cannot get db share", zap.Error(err), zap.String("id", id), zap.String("user", u.AccountId))
+		return nil, err
+	}
+
+	host := strings.Split(dbShare.UIDOwner, "@")[1]
+
+	provider, err := sm.getDBOCMProvider(ctx, host)
+	if err != nil {
+		l.Error("cannot get db provider", zap.Error(err), zap.String("host", host))
+		return nil, err
+	}
+
+	share, err := sm.convertToReceivedOCMShare(ctx, dbShare, provider.Endpoint)
+	if err != nil {
+		l.Error("", zap.Error(err))
+		return nil, err
+	}
+	return share, nil
+
+}
 func (sm *shareManager) GetReceivedFolderShare(ctx context.Context, id string) (*api.FolderShare, error) {
 	l := ctx_zap.Extract(ctx)
 	u, err := getUserFromContext(ctx)
@@ -493,6 +527,39 @@ type ocShare struct {
 }
 */
 
+type ocmProvider struct {
+	Domain     string
+	Endpoint   string
+	APIVersion string
+}
+
+func (sm *shareManager) getDBOCMProvider(ctx context.Context, domain string) (*ocmProvider, error) {
+	l := ctx_zap.Extract(ctx)
+
+	var (
+		url        string
+		apiVersion string
+	)
+	query := fmt.Sprintf("SELECT end_point, api_version FROM ocm_providers WHERE domain=?")
+	err := sm.db.QueryRow(query, domain).Scan(&url, &apiVersion)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			l.Error("Cannot find provider", zap.String("domain", domain))
+		} else {
+			l.Error("CANNOT QUERY STATEMENT")
+		}
+		return nil, err
+	}
+
+	provider := &ocmProvider{
+		Domain:     domain,
+		Endpoint:   url,
+		APIVersion: apiVersion,
+	}
+	return provider, nil
+
+}
+
 type dbShare struct {
 	ID          int
 	UIDOwner    string
@@ -504,6 +571,7 @@ type dbShare struct {
 	STime       int
 	FileTarget  string
 	State       int
+	Token       string
 }
 
 func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id string) (*dbShare, error) {
@@ -524,6 +592,7 @@ func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id stri
 		permissions int
 		fileTarget  string
 		state       int
+		token       string
 	)
 
 	groups, err := sm.um.GetUserGroups(ctx, accountID)
@@ -541,21 +610,21 @@ func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id stri
 	var query string
 
 	if len(groups) > 1 {
-		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=? or share_with in (?" + strings.Repeat(",?", len(groups)-1) + ")) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, token from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=? or share_with in (?" + strings.Repeat(",?", len(groups)-1) + ")) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
 		queryArgs = append(queryArgs, groupArgs...)
 		queryArgs = append(queryArgs, accountID)
 	} else {
-		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, token from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
 		queryArgs = append(queryArgs, accountID)
 	}
 
-	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state); err != nil {
+	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state, &token); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, api.NewError(api.FolderShareNotFoundErrorCode)
 		}
 		return nil, err
 	}
-	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType, FileTarget: fileTarget, State: state}
+	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType, FileTarget: fileTarget, State: state, Token: token}
 	return dbShare, nil
 
 }
@@ -733,6 +802,24 @@ func (sm *shareManager) convertToReceivedFolderShare(ctx context.Context, dbShar
 		Recipient: &api.ShareRecipient{
 			Identity: dbShare.ShareWith,
 			Type:     recipientType,
+		},
+		Target: dbShare.FileTarget,
+	}
+	return share, nil
+
+}
+
+func (sm *shareManager) convertToReceivedOCMShare(ctx context.Context, dbShare *dbShare, baseUrl string) (*api.FolderShare, error) {
+
+	path := strings.Join([]string{"ocm", baseUrl, dbShare.Token, dbShare.ItemSource}, ";")
+	share := &api.FolderShare{
+		OwnerId:  dbShare.UIDOwner,
+		Id:       fmt.Sprintf("%d", dbShare.ID),
+		Mtime:    uint64(dbShare.STime),
+		Path:     path,
+		ReadOnly: dbShare.Permissions == 1,
+		Recipient: &api.ShareRecipient{
+			Identity: dbShare.ShareWith,
 		},
 		Target: dbShare.FileTarget,
 	}

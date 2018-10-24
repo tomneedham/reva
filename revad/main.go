@@ -24,6 +24,7 @@ import (
 	"github.com/cernbox/reva/api/storage_eos"
 	"github.com/cernbox/reva/api/storage_homemigration"
 	"github.com/cernbox/reva/api/storage_local"
+	"github.com/cernbox/reva/api/storage_ocm"
 	"github.com/cernbox/reva/api/storage_public_link"
 	"github.com/cernbox/reva/api/storage_share"
 	"github.com/cernbox/reva/api/storage_usermigration"
@@ -153,6 +154,30 @@ func loadMountTable(mt *api.MountTable) error {
 	for _, mte := range mt.Mounts {
 		storageDriver := mte.StorageDriver
 		switch storageDriver {
+		case "ocm":
+			bytes, err := json.Marshal(mte.StorageOptions)
+			if err != nil {
+				panic(err)
+			}
+			opts := &storage_ocm.Options{}
+			err = json.Unmarshal(bytes, opts)
+			if err != nil {
+				panic(err)
+			}
+			opts.Logger = logger
+			storage, err := storage_ocm.New(opts)
+			if err != nil {
+				panic(err)
+			}
+
+			storage, err = applyStorageWrappers(storage, mte.StorageWrappers)
+			if err != nil {
+				panic(err)
+			}
+
+			mount := mount.New(mte.MountID, mte.MountPoint, mte.MountOptions, storage)
+			mounts = append(mounts, mount)
+
 		case "local":
 			bytes, err := json.Marshal(mte.StorageOptions)
 			if err != nil {

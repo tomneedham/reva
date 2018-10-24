@@ -39,7 +39,12 @@ func (fs *shareStorage) getReceivedShare(ctx context.Context, name string) (*api
 	id := items[1]
 	share, err := fs.shareManager.GetReceivedFolderShare(ctx, id)
 	if err != nil {
-		return nil, "", err
+		// fallback to OCM
+		share, err = fs.shareManager.GetReceivedOCMShare(ctx, id)
+		if err != nil {
+			return nil, "", err
+		}
+		return share, "", nil
 	}
 
 	var relativePath string
