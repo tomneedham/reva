@@ -40,12 +40,14 @@ func (fs *shareStorage) getReceivedShare(ctx context.Context, name string) (*api
 	share, err := fs.shareManager.GetReceivedFolderShare(ctx, id)
 	if err != nil {
 		// fallback to OCM
+		fs.logger.Info("USING OCM")
 		share, err = fs.shareManager.GetReceivedOCMShare(ctx, id)
 		if err != nil {
 			return nil, "", err
 		}
 		return share, "", nil
 	}
+	fs.logger.Info("NOT USING OCM")
 
 	var relativePath string
 	if len(items) > 2 {
