@@ -90,7 +90,7 @@ func (sm *shareManager) GetReceivedOCMShare(ctx context.Context, id string) (*ap
 		return nil, err
 	}
 
-	dbShare, err := sm.getDBShareWithMe(ctx, u.AccountId, id)
+	dbShare, err := sm.getDBOCMShareWithMe(ctx, u.AccountId, id)
 	if err != nil {
 		l.Error("cannot get db share", zap.Error(err), zap.String("id", id), zap.String("user", u.AccountId))
 		return nil, err
@@ -574,7 +574,7 @@ type dbShare struct {
 	Token       string
 }
 
-func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id string) (*dbShare, error) {
+func (sm *shareManager) getDBOCMShareWithMe(ctx context.Context, accountID, id string) (*dbShare, error) {
 	l := ctx_zap.Extract(ctx)
 	intID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
@@ -595,6 +595,44 @@ func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id stri
 		token       string
 	)
 
+	queryArgs := []interface{}{id, accountID}
+
+	var query string
+
+	query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, coalesce(token, '') from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and share_type=5 and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+	queryArgs = append(queryArgs, accountID)
+
+	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state, &token); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, api.NewError(api.FolderShareNotFoundErrorCode)
+		}
+		return nil, err
+	}
+	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType, FileTarget: fileTarget, State: state, Token: token}
+	return dbShare, nil
+
+}
+
+func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id string) (*dbShare, error) {
+	l := ctx_zap.Extract(ctx)
+	intID, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		l.Error("cannot parse id to int64", zap.Error(err))
+		return nil, err
+	}
+
+	var (
+		uidOwner    string
+		shareWith   string
+		prefix      string
+		itemSource  string
+		shareType   int
+		stime       int
+		permissions int
+		fileTarget  string
+		state       int
+	)
+
 	groups, err := sm.um.GetUserGroups(ctx, accountID)
 	if err != nil {
 		l.Error("", zap.Error(err))
@@ -610,21 +648,21 @@ func (sm *shareManager) getDBShareWithMe(ctx context.Context, accountID, id stri
 	var query string
 
 	if len(groups) > 1 {
-		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, coalesce(token, '') from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=? or share_with in (?" + strings.Repeat(",?", len(groups)-1) + ")) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted from oc_share where id=? and (accepted=0 or accepted=1) and share_type<> 5 and (share_with=? or share_with in (?" + strings.Repeat(",?", len(groups)-1) + ")) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
 		queryArgs = append(queryArgs, groupArgs...)
 		queryArgs = append(queryArgs, accountID)
 	} else {
-		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, coalesce(token, '') from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+		query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and share_type<> 5 and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
 		queryArgs = append(queryArgs, accountID)
 	}
 
-	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state, &token); err != nil {
+	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, api.NewError(api.FolderShareNotFoundErrorCode)
 		}
 		return nil, err
 	}
-	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType, FileTarget: fileTarget, State: state, Token: token}
+	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType, FileTarget: fileTarget, State: state}
 	return dbShare, nil
 
 }
