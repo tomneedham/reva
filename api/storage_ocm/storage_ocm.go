@@ -78,7 +78,7 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 	ocmPath := fs.getOCMPath(name)
 	dav := gowebdav.NewClient(ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
-	osFileInfo, err := dav.Stat(ocmPath.ItemSource)
+	osFileInfo, err := dav.Stat(ocmPath.FileTarget)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fs.logger.Error("IS NOT EXIST", zap.String("NAME", name))
@@ -95,7 +95,7 @@ func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Met
 	ocmPath := fs.getOCMPath(name)
 	dav := gowebdav.NewClient(ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
-	osFileInfos, err := dav.ReadDir(ocmPath.ItemSource)
+	osFileInfos, err := dav.ReadDir(ocmPath.FileTarget)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fs.logger.Error("IS NOT EXIST", zap.String("NAME", name))
@@ -106,7 +106,7 @@ func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Met
 	}
 	finfos := []*api.Metadata{}
 	for _, osFileInfo := range osFileInfos {
-		finfos = append(finfos, fs.convertToFileInfoWithNamespace(osFileInfo, path.Join(ocmPath.ItemSource, osFileInfo.Name())))
+		finfos = append(finfos, fs.convertToFileInfoWithNamespace(osFileInfo, path.Join(ocmPath.FileTarget, osFileInfo.Name())))
 	}
 	return finfos, nil
 }
@@ -120,7 +120,7 @@ func (fs *localStorage) Download(ctx context.Context, name string) (io.ReadClose
 	ocmPath := fs.getOCMPath(name)
 	dav := gowebdav.NewClient(ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
-	r, err := dav.ReadStream(ocmPath.ItemSource)
+	r, err := dav.ReadStream(ocmPath.FileTarget)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fs.logger.Error("IS NOT EXIST", zap.String("NAME", name))
@@ -158,7 +158,7 @@ func (fs *localStorage) RestoreRecycleEntry(ctx context.Context, restoreKey stri
 type ocmPath struct {
 	BaseURL    string
 	Token      string
-	ItemSource string
+	FileTarget string
 }
 
 func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
@@ -168,6 +168,6 @@ func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
 	return &ocmPath{
 		BaseURL:    values[1],
 		Token:      values[2],
-		ItemSource: values[3],
+		FileTarget: values[3],
 	}
 }
