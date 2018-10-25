@@ -60,14 +60,10 @@ func (v *vfs) GetMount(p string) (api.Mount, error) {
 
 	for _, m := range v.mounts {
 
-		v.l.Info("MATCHING MOUNT POINT", zap.String("A", m.GetMountPoint()), zap.String("B", m.GetMountPointId()))
-
 		if strings.HasPrefix(p, m.GetMountPoint()) {
-			v.l.Info("MATCHED A")
 			return m, nil
 		}
 		if strings.HasPrefix(p, m.GetMountPointId()) {
-			v.l.Info("MATCHED B")
 			return m, nil
 		}
 	}
