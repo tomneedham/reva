@@ -166,8 +166,8 @@ func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
 	values := strings.Split(originalPath, ";")
 
 	return &ocmPath{
-		BaseURL:    values[0],
-		Token:      values[1],
-		ItemSource: values[2],
+		BaseURL:    values[1],
+		Token:      values[2],
+		ItemSource: strings.Replace(values[3], ";", ":", -1),
 	}
 }
