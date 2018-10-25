@@ -811,7 +811,7 @@ func (sm *shareManager) convertToReceivedFolderShare(ctx context.Context, dbShar
 
 func (sm *shareManager) convertToReceivedOCMShare(ctx context.Context, dbShare *dbShare, baseUrl string) (*api.FolderShare, error) {
 
-	path := strings.Join([]string{"ocm", "0", strings.Replace(baseUrl, ":", ";", -1), dbShare.Token, dbShare.ItemSource}, ":")
+	path := "/ocm/" + strings.Join([]string{dbShare.Token, dbShare.ItemSource}, ";")
 	share := &api.FolderShare{
 		OwnerId:  dbShare.UIDOwner,
 		Id:       fmt.Sprintf("%d", dbShare.ID),
