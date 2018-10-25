@@ -76,7 +76,7 @@ func (fs *localStorage) Move(ctx context.Context, oldName, newName string) error
 func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Metadata, error) {
 
 	ocmPath := fs.getOCMPath(name)
-	dav := gowebdav.NewClient(ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
+	dav := gowebdav.NewClient("https://"+ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
 	osFileInfo, err := dav.Stat(ocmPath.FileTarget)
 	if err != nil {
@@ -93,7 +93,7 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Metadata, error) {
 
 	ocmPath := fs.getOCMPath(name)
-	dav := gowebdav.NewClient(ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
+	dav := gowebdav.NewClient("https://"+ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
 	osFileInfos, err := dav.ReadDir(ocmPath.FileTarget)
 	if err != nil {
@@ -118,7 +118,7 @@ func (fs *localStorage) Upload(ctx context.Context, name string, r io.ReadCloser
 func (fs *localStorage) Download(ctx context.Context, name string) (io.ReadCloser, error) {
 
 	ocmPath := fs.getOCMPath(name)
-	dav := gowebdav.NewClient(ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
+	dav := gowebdav.NewClient("https://"+ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
 	r, err := dav.ReadStream(ocmPath.FileTarget)
 	if err != nil {
@@ -166,8 +166,8 @@ func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
 	values := strings.Split(originalPath, ";")
 
 	return &ocmPath{
-		BaseURL:    values[1],
-		Token:      values[2],
-		FileTarget: values[3],
+		BaseURL:    values[0],
+		Token:      values[1],
+		FileTarget: values[2],
 	}
 }
