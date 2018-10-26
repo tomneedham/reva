@@ -2,8 +2,10 @@ package storage_ocm
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"strings"
@@ -77,6 +79,8 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 
 	ocmPath := fs.getOCMPath(name)
 	fs.logger.Info("GETTING METADATA FROM WEBDAV SERVER", zap.String("BaseURL", ocmPath.BaseURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient("https:/"+ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
 	osFileInfo, err := dav.Stat(ocmPath.FileTarget)
@@ -95,6 +99,8 @@ func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Met
 
 	ocmPath := fs.getOCMPath(name)
 	fs.logger.Info("LISTING FOLDER FROM WEBDAV SERVER", zap.String("BaseURL", ocmPath.BaseURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient("https:/"+ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
 	osFileInfos, err := dav.ReadDir(ocmPath.FileTarget)
@@ -121,6 +127,8 @@ func (fs *localStorage) Download(ctx context.Context, name string) (io.ReadClose
 
 	ocmPath := fs.getOCMPath(name)
 	fs.logger.Info("DOWNLOAD FROM WEBDAV SERVER", zap.String("BaseURL", ocmPath.BaseURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient("https:/"+ocmPath.BaseURL, ocmPath.Token, ocmPath.Token)
 
 	r, err := dav.ReadStream(ocmPath.FileTarget)
