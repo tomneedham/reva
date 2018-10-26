@@ -3,21 +3,19 @@ package eosclient
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	osuser "os/user"
+	gouser "os/user"
 	"path"
 	"strconv"
 	"strings"
 	"syscall"
 
-	"github.com/cernbox/reva/api"
 	"github.com/gofrs/uuid"
-	"go.uber.org/zap"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -26,6 +24,7 @@ const (
 	versionPrefix = ".sys.v#."
 )
 
+// Options to configure the Client.
 type Options struct {
 	// Location of the eos binary.
 	// Default is /usr/bin/eos.
@@ -43,12 +42,11 @@ type Options struct {
 	// Defaults to os.TempDir()
 	CacheDirectory string
 
-	// Enables logging of the commands executed
-	// Defaults to false
-	EnableLogging bool
+	// Writter to write logs to
+	LogOutput io.Writer
 
-	// Logger to use
-	Logger *zap.Logger
+	// Key to get the trace Id from.
+	TraceKey interface{}
 }
 
 func (opt *Options) init() {
@@ -68,39 +66,44 @@ func (opt *Options) init() {
 		opt.CacheDirectory = os.TempDir()
 	}
 
-	if opt.Logger == nil {
-		l, _ := zap.NewProduction()
-		opt.Logger = l
+	if opt.LogOutput == nil {
+		opt.LogOutput = ioutil.Discard
+	}
+
+	if opt.TraceKey == nil {
+		opt.TraceKey = "traceid"
 	}
 }
 
 // Client performs actions against a EOS management node (MGM).
 // It requires the eos-client and xrootd-client packages installed to work.
 type Client struct {
-	opt *Options
+	opt    *Options
+	logger *logger
 }
 
+// New creates a new client with the given options.
 func New(opt *Options) (*Client, error) {
 	opt.init()
 	c := new(Client)
 	c.opt = opt
+	c.logger = &logger{key: opt.TraceKey, out: opt.LogOutput}
 	return c, nil
 }
 
-func getUnixUser(username string) (*osuser.User, error) {
-	return osuser.Lookup(username)
+func getUnixUser(username string) (*gouser.User, error) {
+	return gouser.Lookup(username)
 }
 
 // exec executes the command and returns the stdout, stderr and return code
-func (c *Client) execute(cmd *exec.Cmd) (string, string, error) {
-	cmd.Env = []string{
-		"EOS_MGM_URL=" + c.opt.URL,
-	}
-
+func (c *Client) execute(ctx context.Context, cmd *exec.Cmd) (string, string, error) {
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
 	cmd.Stdout = outBuf
 	cmd.Stderr = errBuf
+	cmd.Env = []string{
+		"EOS_MGM_URL=" + c.opt.URL,
+	}
 
 	err := cmd.Run()
 
@@ -112,39 +115,48 @@ func (c *Client) execute(cmd *exec.Cmd) (string, string, error) {
 		// defined for both Unix and Windows and in both cases has
 		// an ExitStatus() method with the same signature.
 		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+
 			exitStatus = status.ExitStatus()
 			switch exitStatus {
+			case 0:
+				err = nil
 			case 2:
-				err = api.NewError(api.StorageNotFoundErrorCode)
-			// eos reports back error code 22 when the user is not allowed to enter the instance
+				err = notFoundError(errBuf.String())
 			case 22:
-				err = api.NewError(api.StorageNotFoundErrorCode)
+				// eos reports back error code 22 when the user is not allowed to enter the instance
+				err = notFoundError(errBuf.String())
 			}
 		}
 	}
-	if c.opt.EnableLogging {
-		c.opt.Logger.Info("eosclient: cmd", zap.String("args", fmt.Sprintf("%v", cmd.Args)), zap.Int("exist_status", exitStatus), zap.Error(err))
+
+	msg := fmt.Sprintf("cmd=%v env=%v exit=%d", cmd.Args, cmd.Env, exitStatus)
+	c.logger.log(ctx, msg)
+
+	if err != nil {
+		err = errors.Wrap(err, "eosclient: error while executing command")
 	}
+
 	return outBuf.String(), errBuf.String(), err
 }
 
-func (c *Client) AddACL(ctx context.Context, username, path string, readOnly bool, recipient *api.ShareRecipient, shareList []*api.FolderShare) error {
+// AddACL adds an new acl to EOS with the given aclType.
+func (c *Client) AddACL(ctx context.Context, username, path string, readOnly bool, aclType ACLType, recipient string) error {
 	aclManager, err := c.getACLForPath(ctx, username, path)
 	if err != nil {
 		return err
 	}
 
-	switch recipient.Type {
-	case api.ShareRecipient_USER:
-		if err := aclManager.addUser(ctx, recipient.Identity, readOnly); err != nil {
+	switch aclType {
+	case ACLTypeUser:
+		if err := aclManager.addUser(ctx, recipient, readOnly); err != nil {
 			return err
 		}
-	case api.ShareRecipient_GROUP:
-		if err := aclManager.addGroup(ctx, recipient.Identity, readOnly); err != nil {
+	case ACLTypeGroup:
+		if err := aclManager.addGroup(ctx, recipient, readOnly); err != nil {
 			return err
 		}
-	case api.ShareRecipient_UNIX:
-		if err := aclManager.addUnixGroup(ctx, recipient.Identity, readOnly); err != nil {
+	case ACLTypeUnixGroup:
+		if err := aclManager.addUnixGroup(ctx, recipient, readOnly); err != nil {
 			return err
 		}
 	}
@@ -158,24 +170,25 @@ func (c *Client) AddACL(ctx context.Context, username, path string, readOnly boo
 	}
 
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "attr", "-r", "set", fmt.Sprintf("sys.acl=%s", sysAcl), path)
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 
 }
 
-func (c *Client) RemoveACL(ctx context.Context, username, path string, recipient *api.ShareRecipient, shareList []*api.FolderShare) error {
+// RemoveACL removes the acl from EOS.
+func (c *Client) RemoveACL(ctx context.Context, username, path string, aclType ACLType, recipient string) error {
 	aclManager, err := c.getACLForPath(ctx, username, path)
 	if err != nil {
 		return err
 	}
 
-	switch recipient.Type {
-	case api.ShareRecipient_USER:
-		aclManager.deleteUser(ctx, recipient.Identity)
-	case api.ShareRecipient_GROUP:
-		aclManager.deleteGroup(ctx, recipient.Identity)
-	case api.ShareRecipient_UNIX:
-		aclManager.deleteUnixGroup(ctx, recipient.Identity)
+	switch aclType {
+	case ACLTypeUser:
+		aclManager.deleteUser(ctx, recipient)
+	case ACLTypeGroup:
+		aclManager.deleteGroup(ctx, recipient)
+	case ACLTypeUnixGroup:
+		aclManager.deleteUnixGroup(ctx, recipient)
 	}
 
 	sysAcl := aclManager.serialize()
@@ -187,13 +200,14 @@ func (c *Client) RemoveACL(ctx context.Context, username, path string, recipient
 	}
 
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "attr", "-r", "set", fmt.Sprintf("sys.acl=%s", sysAcl), path)
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 
 }
 
-func (c *Client) UpdateACL(ctx context.Context, username, path string, readOnly bool, recipient *api.ShareRecipient, shareList []*api.FolderShare) error {
-	return c.AddACL(ctx, username, path, readOnly, recipient, shareList)
+// UpdateACL updates the EOS acl.
+func (c *Client) UpdateACL(ctx context.Context, username, path string, readOnly bool, aclType ACLType, recipient string) error {
+	return c.AddACL(ctx, username, path, readOnly, aclType, recipient)
 }
 
 func (c *Client) getACLForPath(ctx context.Context, username, path string) (*aclManager, error) {
@@ -213,7 +227,7 @@ func (c *Client) GetFileInfoByInode(ctx context.Context, username string, inode 
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "file", "info", fmt.Sprintf("inode:%d", inode), "-m")
-	stdout, _, err := c.execute(cmd)
+	stdout, _, err := c.execute(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +241,7 @@ func (c *Client) GetFileInfoByPath(ctx context.Context, username, path string) (
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "file", "info", path, "-m")
-	stdout, _, err := c.execute(cmd)
+	stdout, _, err := c.execute(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +256,7 @@ func (c *Client) GetQuota(ctx context.Context, username, path string) (int, int,
 		return 0, 0, err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "quota", "ls", "-u", username, "-m")
-	stdout, _, err := c.execute(cmd)
+	stdout, _, err := c.execute(ctx, cmd)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -257,7 +271,7 @@ func (c *Client) CreateDir(ctx context.Context, username, path string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "mkdir", "-p", path)
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 }
 
@@ -268,7 +282,7 @@ func (c *Client) Remove(ctx context.Context, username, path string) error {
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "rm", "-r", path)
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 }
 
@@ -279,7 +293,7 @@ func (c *Client) Rename(ctx context.Context, username, oldPath, newPath string) 
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "file", "rename", oldPath, newPath)
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 }
 
@@ -290,7 +304,7 @@ func (c *Client) List(ctx context.Context, username, path string) ([]*FileInfo, 
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "find", "--fileinfo", "--maxdepth", "1", path)
-	stdout, _, err := c.execute(cmd)
+	stdout, _, err := c.execute(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +322,7 @@ func (c *Client) Read(ctx context.Context, username, path string) (io.ReadCloser
 	localTarget := fmt.Sprintf("%s/%s", c.opt.CacheDirectory, rand)
 	xrdPath := fmt.Sprintf("%s//%s", c.opt.URL, path)
 	cmd := exec.CommandContext(ctx, "/usr/bin/xrdcopy", "--nopbar", "--silent", "-f", xrdPath, localTarget, fmt.Sprintf("-OSeos.ruid=%s&eos.rgid=%s", unixUser.Uid, unixUser.Gid))
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +349,7 @@ func (c *Client) Write(ctx context.Context, username, path string, stream io.Rea
 	}
 	xrdPath := fmt.Sprintf("%s//%s", c.opt.URL, path)
 	cmd := exec.CommandContext(ctx, "/usr/bin/xrdcopy", "--nopbar", "--silent", "-f", fd.Name(), xrdPath, fmt.Sprintf("-ODeos.ruid=%s&eos.rgid=%s", unixUser.Uid, unixUser.Gid))
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 }
 
@@ -348,7 +362,7 @@ func (c *Client) ListDeletedEntries(ctx context.Context, username string) ([]*De
 	// TODO(labkode): add protection if slave is configured and alive to count how many files are in the trashbin before
 	// triggering the recycle ls call that could break the instance because of unavailable memory.
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "recycle", "ls", "-m")
-	stdout, _, err := c.execute(cmd)
+	stdout, _, err := c.execute(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +376,7 @@ func (c *Client) RestoreDeletedEntry(ctx context.Context, username, key string) 
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "recycle", "restore", key)
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 }
 
@@ -373,7 +387,7 @@ func (c *Client) PurgeDeletedEntries(ctx context.Context, username string) error
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "recycle", "purge")
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 }
 
@@ -402,7 +416,7 @@ func (c *Client) RollbackToVersion(ctx context.Context, username, path, version 
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "file", "versions", path, version)
-	_, _, err = c.execute(cmd)
+	_, _, err = c.execute(ctx, cmd)
 	return err
 }
 
@@ -664,16 +678,16 @@ type DeletedEntry struct {
 	IsDir         bool
 }
 
-type aclType string
+type ACLType string
 
 var (
 	errInvalidACL = errors.New("invalid acl")
 )
 
 const (
-	aclTypeUser      aclType = "u"
-	aclTypeGroup     aclType = "egroup"
-	aclTypeUnixGroup aclType = "g"
+	ACLTypeUser      ACLType = "u"
+	ACLTypeGroup     ACLType = "egroup"
+	ACLTypeUnixGroup ACLType = "g"
 )
 
 type aclManager struct {
@@ -685,11 +699,9 @@ func (c *Client) newAclManager(ctx context.Context, sysAcl string) *aclManager {
 	aclEntries := []*aclEntry{}
 	for _, t := range tokens {
 		aclEntry, err := newAclEntry(ctx, t)
-		if err != nil {
-			c.opt.Logger.Warn("invalid acl entry", zap.String("sys.acl", sysAcl), zap.String("faulty_acl", t))
-			continue
+		if err == nil {
+			aclEntries = append(aclEntries, aclEntry)
 		}
-		aclEntries = append(aclEntries, aclEntry)
 	}
 
 	return &aclManager{aclEntries: aclEntries}
@@ -698,7 +710,7 @@ func (c *Client) newAclManager(ctx context.Context, sysAcl string) *aclManager {
 func (m *aclManager) getUsers() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeUser {
+		if e.ACLType == ACLTypeUser {
 			entries = append(entries, e)
 		}
 	}
@@ -708,7 +720,7 @@ func (m *aclManager) getUsers() []*aclEntry {
 func (m *aclManager) getUsersWithReadPermission() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeUser && e.hasReadPermissions() {
+		if e.ACLType == ACLTypeUser && e.hasReadPermissions() {
 			entries = append(entries, e)
 		}
 	}
@@ -718,7 +730,7 @@ func (m *aclManager) getUsersWithReadPermission() []*aclEntry {
 func (m *aclManager) getUsersWithWritePermission() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeUser && e.hasWritePermissions() {
+		if e.ACLType == ACLTypeUser && e.hasWritePermissions() {
 			entries = append(entries, e)
 		}
 	}
@@ -728,7 +740,7 @@ func (m *aclManager) getUsersWithWritePermission() []*aclEntry {
 func (m *aclManager) getGroups() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeGroup {
+		if e.ACLType == ACLTypeGroup {
 			entries = append(entries, e)
 		}
 	}
@@ -738,7 +750,7 @@ func (m *aclManager) getGroups() []*aclEntry {
 func (m *aclManager) getGroupsWithReadPermission() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeGroup && e.hasReadPermissions() {
+		if e.ACLType == ACLTypeGroup && e.hasReadPermissions() {
 			entries = append(entries, e)
 		}
 	}
@@ -748,7 +760,7 @@ func (m *aclManager) getGroupsWithReadPermission() []*aclEntry {
 func (m *aclManager) getGroupsWithWritePermission() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeGroup && e.hasWritePermissions() {
+		if e.ACLType == ACLTypeGroup && e.hasWritePermissions() {
 			entries = append(entries, e)
 		}
 	}
@@ -758,7 +770,7 @@ func (m *aclManager) getGroupsWithWritePermission() []*aclEntry {
 func (m *aclManager) getUnixGroups() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeUnixGroup {
+		if e.ACLType == ACLTypeUnixGroup {
 			entries = append(entries, e)
 		}
 	}
@@ -768,7 +780,7 @@ func (m *aclManager) getUnixGroups() []*aclEntry {
 func (m *aclManager) getUnixGroupsWithReadPermission() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeUnixGroup && e.hasReadPermissions() {
+		if e.ACLType == ACLTypeUnixGroup && e.hasReadPermissions() {
 			entries = append(entries, e)
 		}
 	}
@@ -778,7 +790,7 @@ func (m *aclManager) getUnixGroupsWithReadPermission() []*aclEntry {
 func (m *aclManager) getUnixGroupsWithWritePermission() []*aclEntry {
 	entries := []*aclEntry{}
 	for _, e := range m.aclEntries {
-		if e.aclType == aclTypeUnixGroup && e.hasWritePermissions() {
+		if e.ACLType == ACLTypeUnixGroup && e.hasWritePermissions() {
 			entries = append(entries, e)
 		}
 	}
@@ -814,7 +826,7 @@ func (m *aclManager) getUnixGroup(unixGroup string) *aclEntry {
 
 func (m *aclManager) deleteUser(ctx context.Context, username string) {
 	for i, e := range m.aclEntries {
-		if e.recipient == username && e.aclType == aclTypeUser {
+		if e.recipient == username && e.ACLType == ACLTypeUser {
 			m.aclEntries = append(m.aclEntries[:i], m.aclEntries[i+1:]...)
 			return
 		}
@@ -824,7 +836,7 @@ func (m *aclManager) deleteUser(ctx context.Context, username string) {
 func (m *aclManager) addUser(ctx context.Context, username string, readOnly bool) error {
 	m.deleteUser(ctx, username)
 	perm := m.readOnlyToEOSPermissions(readOnly)
-	sysAcl := strings.Join([]string{string(aclTypeUser), username, perm}, ":")
+	sysAcl := strings.Join([]string{string(ACLTypeUser), username, perm}, ":")
 	newEntry, err := newAclEntry(ctx, sysAcl)
 	if err != nil {
 		return err
@@ -835,7 +847,7 @@ func (m *aclManager) addUser(ctx context.Context, username string, readOnly bool
 
 func (m *aclManager) deleteGroup(ctx context.Context, group string) {
 	for i, e := range m.aclEntries {
-		if e.recipient == group && e.aclType == aclTypeGroup {
+		if e.recipient == group && e.ACLType == ACLTypeGroup {
 			m.aclEntries = append(m.aclEntries[:i], m.aclEntries[i+1:]...)
 			return
 		}
@@ -845,7 +857,7 @@ func (m *aclManager) deleteGroup(ctx context.Context, group string) {
 func (m *aclManager) addGroup(ctx context.Context, group string, readOnly bool) error {
 	m.deleteGroup(ctx, group)
 	perm := m.readOnlyToEOSPermissions(readOnly)
-	sysAcl := strings.Join([]string{string(aclTypeGroup), group, perm}, ":")
+	sysAcl := strings.Join([]string{string(ACLTypeGroup), group, perm}, ":")
 	newEntry, err := newAclEntry(ctx, sysAcl)
 	if err != nil {
 		return err
@@ -856,7 +868,7 @@ func (m *aclManager) addGroup(ctx context.Context, group string, readOnly bool) 
 
 func (m *aclManager) deleteUnixGroup(ctx context.Context, unixGroup string) {
 	for i, e := range m.aclEntries {
-		if e.recipient == unixGroup && e.aclType == aclTypeUnixGroup {
+		if e.recipient == unixGroup && e.ACLType == ACLTypeUnixGroup {
 			m.aclEntries = append(m.aclEntries[:i], m.aclEntries[i+1:]...)
 			return
 		}
@@ -866,7 +878,7 @@ func (m *aclManager) deleteUnixGroup(ctx context.Context, unixGroup string) {
 func (m *aclManager) addUnixGroup(ctx context.Context, unixGroup string, readOnly bool) error {
 	m.deleteUnixGroup(ctx, unixGroup)
 	perm := m.readOnlyToEOSPermissions(readOnly)
-	sysAcl := strings.Join([]string{string(aclTypeUnixGroup), unixGroup, perm}, ":")
+	sysAcl := strings.Join([]string{string(ACLTypeUnixGroup), unixGroup, perm}, ":")
 	newEntry, err := newAclEntry(ctx, sysAcl)
 	if err != nil {
 		return err
@@ -891,7 +903,7 @@ func (m *aclManager) serialize() string {
 }
 
 type aclEntry struct {
-	aclType     aclType
+	ACLType     ACLType
 	recipient   string
 	permissions string
 }
@@ -903,7 +915,7 @@ func newAclEntry(ctx context.Context, singleSysAcl string) (*aclEntry, error) {
 		return nil, errInvalidACL
 	}
 	return &aclEntry{
-		aclType:     aclType(tokens[0]),
+		ACLType:     ACLType(tokens[0]),
 		recipient:   tokens[1],
 		permissions: tokens[2],
 	}, nil
@@ -918,5 +930,28 @@ func (a *aclEntry) hasReadPermissions() bool {
 }
 
 func (a *aclEntry) serialize() string {
-	return strings.Join([]string{string(a.aclType), a.recipient, a.permissions}, ":")
+	return strings.Join([]string{string(a.ACLType), a.recipient, a.permissions}, ":")
+}
+
+type notFoundError string
+
+func (e notFoundError) IsNotFound()   {}
+func (e notFoundError) Error() string { return string(e) }
+
+type logger struct {
+	out io.Writer
+	key interface{}
+}
+
+func (l *logger) log(ctx context.Context, msg string) {
+	trace := l.getTraceFromCtx(ctx)
+	fmt.Fprintf(l.out, "eosclient: trace=%s %s", trace, msg)
+}
+
+func (l *logger) getTraceFromCtx(ctx context.Context) string {
+	trace, _ := ctx.Value("traceid").(string)
+	if trace == "" {
+		trace = "notrace"
+	}
+	return trace
 }
