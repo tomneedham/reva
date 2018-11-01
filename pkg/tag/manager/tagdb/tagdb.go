@@ -1,0 +1,306 @@
+package tag_manager_db
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	gopath "path"
+	"strings"
+
+	"github.com/cernbox/reva/pkg/storage"
+	"github.com/cernbox/reva/pkg/tag"
+	"github.com/cernbox/reva/pkg/user"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/pkg/errors"
+)
+
+const versionPrefix = ".sys.v#."
+
+type tagManager struct {
+	db *sql.DB
+}
+
+func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string) tag.TagManager {
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbUsername, dbPassword, dbHost, dbPort, dbName))
+	if err != nil {
+		panic(err)
+	}
+
+	return &tagManager{db: db}
+}
+
+func (lm *tagManager) getTag(ctx context.Context, u *user.User, prefix, fileID, key string) (*tag.Tag, error) {
+	var (
+		id       int64
+		itemType int
+		tagVal   string
+	)
+
+	query := "select id,item_type,coalesce(tag_val, '') as tag_val from cbox_metadata where uid=? and fileid_prefix=? and fileid=? and tag_key=?"
+	if err := lm.db.QueryRow(query, u.Account, prefix, fileID, key).Scan(&id, &itemType, &tagVal); err != nil {
+		if err == sql.ErrNoRows {
+			err := tagNotFoundError(key)
+			return nil, errors.Wrap(err, "tagdb: tag not found")
+		}
+		return nil, errors.Wrapf(err, "tagdb: error retrieving tag with key=%s", key)
+	}
+
+	fn := strings.Join([]string{prefix, fileID}, ":")
+
+	tag := &tag.Tag{Filename: fn, Owner: u.Account, Key: key, Value: tagVal, ID: id}
+	return tag, nil
+
+}
+
+func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
+	var fileID string
+	if md.MigId != "" {
+		fileID = md.MigId
+	} else {
+		fileID = md.ID
+	}
+
+	prefix, fileID := splitFileID(fileID)
+
+	var itemType = 0 // directory
+	if !md.IsDir {
+		itemType = 1
+	}
+
+	// if tag exists, we don't create a new one
+	if _, err := lm.getTag(ctx, u, prefix, fileID, key); err == nil {
+		return nil
+	}
+
+	stmtString := "insert into cbox_metadata set item_type=?,uid=?,fileid_prefix=?,fileid=?,tag_key=?,tag_val=?"
+	stmtValues := []interface{}{itemType, u.Account, prefix, fileID, key, val}
+
+	stmt, err := lm.db.Prepare(stmtString)
+	if err != nil {
+		return errors.Wrapf(err, "tagdb: error preparing statement=%s", stmtString)
+	}
+
+	result, err := stmt.Exec(stmtValues...)
+	if err != nil {
+		return errors.Wrapf(err, "tagdb: error executing statement=%s with values=%v", stmtString, stmtValues)
+	}
+
+	lastId, err := result.LastInsertId()
+	if err != nil {
+		return errors.Wrapf(err, "tagdb: error retrieving last id")
+	}
+
+	return nil
+}
+
+/*
+func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *storage.MD) error {
+	md, err := lm.vfs.GetMetadata(ctx, path)
+	if err != nil {
+		l.Error("error getting md for path", zap.String("path", path), zap.Error(err))
+		return err
+	}
+
+	var fileID string
+	if md.MigId != "" {
+		fileID = md.MigId
+	} else {
+		fileID = md.Id
+	}
+
+	prefix, fileID := splitFileID(fileID)
+
+	var itemType tag.Tag_ItemType
+	if md.IsDir {
+		itemType = tag.Tag_FOLDER
+	} else {
+		itemType = tag.Tag_FILE
+		// if link points to a file we need to use the versions folder inode.
+		versionFolderID, err := lm.getVersionFolderID(ctx, md.Path)
+		_, fileID = splitFileID(versionFolderID)
+		if err != nil {
+			l.Error("error getting versions folder for file", zap.Error(err))
+			return err
+		}
+	}
+
+	// if tag exists, we don't create a new one
+	if _, err := lm.getTag(ctx, u.Account, prefix, fileID, key); err == nil {
+		l.Info("aborting creation of new tag, as tag already exists")
+		return nil
+	}
+
+	stmtString := "insert into cbox_metadata set item_type=?,uid=?,fileid_prefix=?,fileid=?,tag_key=?,tag_val=?"
+	stmtValues := []interface{}{itemType, u.Account, prefix, fileID, key, val}
+
+	stmt, err := lm.db.Prepare(stmtString)
+	if err != nil {
+		l.Error("error preparing stmt", zap.Error(err))
+		return err
+	}
+
+	result, err := stmt.Exec(stmtValues...)
+	if err != nil {
+		l.Error("error executing stmt", zap.Error(err))
+		return err
+	}
+
+	lastId, err := result.LastInsertId()
+	if err != nil {
+		l.Error("error getting db id", zap.Error(err))
+		return err
+	}
+
+	l.Info("tag inserted", zap.Int64("id", lastId), zap.String("key", key), zap.String("val", val), zap.String("uid", u.Account))
+	return nil
+}
+*/
+
+func (lm *tagManager) UnSetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
+	var fileID string
+	if md.MigId != "" {
+		fileID = md.MigId
+	} else {
+		fileID = md.ID
+	}
+
+	prefix, fileID := splitFileID(fileID)
+	/* TODO refactor outside
+	if !md.IsDir {
+		versionFolderID, err := lm.getVersionFolderID(ctx, md.Path)
+		_, fileID = splitFileID(versionFolderID)
+		if err != nil {
+			l.Error("error getting versions folder for file", zap.Error(err))
+			return err
+		}
+	}
+	*/
+
+	stmtString := "delete from cbox_metadata where uid=? and fileid_prefix=? and fileid=? and tag_key=?"
+	stmtValues := []interface{}{u.Account, prefix, fileID, key}
+	stmt, err := lm.db.Prepare(stmtString)
+	if err != nil {
+		return errors.Wrapf(err, "tagdb: error preparing statement=%s", stmtString)
+	}
+
+	res, err := stmt.Exec(stmtValues)
+	if err != nil {
+		return errors.Wrapf(err, "tagdb: error executing statement=%s with values=%v for removing tag", stmtString, stmtValues)
+	}
+
+	_, err = res.RowsAffected()
+	if err != nil {
+		return errors.Wrap(err, "tagdb: error while getting affected rows")
+	}
+
+	return nil
+}
+
+func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key string) ([]*tag.Tag, error) {
+	query := "select id, item_type, fileid_prefix, fileid, coalesce(tag_val, '') as tag_val from cbox_metadata where uid=? and tag_key=?"
+	rows, err := lm.db.Query(query, u.Account, key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var (
+		id           int64
+		itemType     int
+		fileIDPrefix string
+		fileID       string
+		tagVal       string
+	)
+
+	tags := []*tag.Tag{}
+	for rows.Next() {
+		err := rows.Scan(&id, &itemType, &fileIDPrefix, &fileID, &tagVal)
+		if err != nil {
+			return nil, err
+		}
+
+		tag := &tag.Tag{ID: id, ItemType: tag.Tag_ItemType(itemType), Uid: u.Account, FileIdPrefix: fileIDPrefix, FileId: fileID, TagKey: key, TagValue: tagVal}
+
+		if tag.ItemType == tag.Tag_FILE {
+			fileID = joinFileID(tag.FileIdPrefix, tag.FileId)
+			md, err := lm.vfs.GetMetadata(ctx, fileID)
+			if err != nil {
+				// TOOD(labkode): log wan here
+				continue
+			}
+
+			versionFolder := md.Path
+			filename := getFileIDFromVersionFolder(versionFolder)
+
+			md, err = lm.vfs.GetMetadata(ctx, filename)
+			if err != nil {
+				// TOOD(labkode): log wan here
+				continue
+			}
+			_, id := splitFileID(md.Id)
+			tag.FileId = id
+		}
+
+		tags = append(tags, tag)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return tags, nil
+}
+
+func getFileIDFromVersionFolder(p string) string {
+	basename := gopath.Base(p)
+	basename = strings.TrimPrefix(basename, "/")
+	basename = strings.TrimPrefix(basename, versionPrefix)
+	filename := gopath.Join(gopath.Dir(p), basename)
+	return filename
+}
+
+func getVersionFolder(p string) string {
+	basename := gopath.Base(p)
+	versionFolder := gopath.Join(gopath.Dir(p), versionPrefix+basename)
+	return versionFolder
+}
+
+// getFileIDParts returns the two parts of a fileID.
+// A fileID like home:1234 will be separated into the prefix (home) and the inode(1234).
+func splitFileID(fileID string) (string, string) {
+	tokens := strings.Split(fileID, ":")
+	return tokens[0], tokens[1]
+}
+
+// joinFileID concatenates the prefix and the inode to form a valid fileID.
+func joinFileID(prefix, inode string) string {
+	return strings.Join([]string{prefix, inode}, ":")
+}
+
+func getUserFromContext(ctx context.Context) (*tag.User, error) {
+	u, ok := tag.ContextGetUser(ctx)
+	if !ok {
+		return nil, tag.NewError(tag.ContextUserRequiredError)
+	}
+	return u, nil
+}
+
+func (lm *tagManager) getVersionFolderID(ctx context.Context, p string) (string, error) {
+	versionFolder := getVersionFolder(p)
+	md, err := lm.vfs.GetMetadata(ctx, versionFolder)
+	if err != nil {
+		if err := lm.vfs.CreateDir(ctx, versionFolder); err != nil {
+			return "", err
+		}
+		md, err = lm.vfs.GetMetadata(ctx, versionFolder)
+		if err != nil {
+			return "", err
+		}
+	}
+	return md.Id, nil
+}
+
+type tagNotFoundError string
+
+func (e tagNotFoundError) Error() string { return string(e) }
