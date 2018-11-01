@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	gopath "path"
+	"path"
 	"strings"
 
 	"github.com/cernbox/reva/pkg/storage"
 	"github.com/cernbox/reva/pkg/tag"
 	"github.com/cernbox/reva/pkg/user"
+
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 )
@@ -17,27 +18,50 @@ import (
 const versionPrefix = ".sys.v#."
 
 type tagManager struct {
-	db *sql.DB
+	db                                     *sql.DB
+	dbUsername, dbPassword, dbHost, dbName string
+	dbPort                                 int
+}
+
+func (t *tagManager) getDB() (*sql.DB, error) {
+	if t.db != nil {
+		return t.db, nil
+	}
+
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", t.dbUsername, t.dbPassword, t.dbHost, t.dbPort, t.dbName))
+	if err != nil {
+		return nil, errors.Wrap(err, "tagdb: error connecting to db")
+
+	}
+
+	t.db = db
+	return t.db, nil
 }
 
 func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string) tag.TagManager {
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbUsername, dbPassword, dbHost, dbPort, dbName))
-	if err != nil {
-		panic(err)
+	return &tagManager{
+		dbUsername: dbUsername,
+		dbPassword: dbPassword,
+		dbName:     dbName,
+		dbHost:     dbHost,
+		dbPort:     dbPort,
 	}
-
-	return &tagManager{db: db}
 }
 
-func (lm *tagManager) getTag(ctx context.Context, u *user.User, prefix, fileID, key string) (*tag.Tag, error) {
+func (lm *tagManager) getDBTag(ctx context.Context, u *user.User, prefix, fileID, key string) (*dbTag, error) {
+	db, err := lm.getDB()
+	if err != nil {
+		return nil, errors.Wrap(err, "tagdb: error getting db")
+	}
+
 	var (
 		id       int64
 		itemType int
-		tagVal   string
+		value    string
 	)
 
 	query := "select id,item_type,coalesce(tag_val, '') as tag_val from cbox_metadata where uid=? and fileid_prefix=? and fileid=? and tag_key=?"
-	if err := lm.db.QueryRow(query, u.Account, prefix, fileID, key).Scan(&id, &itemType, &tagVal); err != nil {
+	if err := db.QueryRow(query, u.Account, prefix, fileID, key).Scan(&id, &itemType, &value); err != nil {
 		if err == sql.ErrNoRows {
 			err := tagNotFoundError(key)
 			return nil, errors.Wrap(err, "tagdb: tag not found")
@@ -45,14 +69,26 @@ func (lm *tagManager) getTag(ctx context.Context, u *user.User, prefix, fileID, 
 		return nil, errors.Wrapf(err, "tagdb: error retrieving tag with key=%s", key)
 	}
 
-	fn := strings.Join([]string{prefix, fileID}, ":")
+	t := &dbTag{
+		id:       id,
+		itemType: itemType,
+		value:    value,
+		key:      key,
+		uid:      u.Account,
+		prefix:   prefix,
+		fileID:   fileID,
+	}
 
-	tag := &tag.Tag{Filename: fn, Owner: u.Account, Key: key, Value: tagVal, ID: id}
-	return tag, nil
+	return t, nil
 
 }
 
 func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
+	db, err := lm.getDB()
+	if err != nil {
+		return errors.Wrap(err, "tagdb: error getting db")
+	}
+
 	var fileID string
 	if md.MigId != "" {
 		fileID = md.MigId
@@ -68,14 +104,14 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string,
 	}
 
 	// if tag exists, we don't create a new one
-	if _, err := lm.getTag(ctx, u, prefix, fileID, key); err == nil {
+	if _, err := lm.getDBTag(ctx, u, prefix, fileID, key); err == nil {
 		return nil
 	}
 
 	stmtString := "insert into cbox_metadata set item_type=?,uid=?,fileid_prefix=?,fileid=?,tag_key=?,tag_val=?"
 	stmtValues := []interface{}{itemType, u.Account, prefix, fileID, key, val}
 
-	stmt, err := lm.db.Prepare(stmtString)
+	stmt, err := db.Prepare(stmtString)
 	if err != nil {
 		return errors.Wrapf(err, "tagdb: error preparing statement=%s", stmtString)
 	}
@@ -85,7 +121,7 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string,
 		return errors.Wrapf(err, "tagdb: error executing statement=%s with values=%v", stmtString, stmtValues)
 	}
 
-	lastId, err := result.LastInsertId()
+	_, err = result.LastInsertId()
 	if err != nil {
 		return errors.Wrapf(err, "tagdb: error retrieving last id")
 	}
@@ -125,7 +161,7 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *st
 	}
 
 	// if tag exists, we don't create a new one
-	if _, err := lm.getTag(ctx, u.Account, prefix, fileID, key); err == nil {
+	if _, err := lm.getDBTag(ctx, u.Account, prefix, fileID, key); err == nil {
 		l.Info("aborting creation of new tag, as tag already exists")
 		return nil
 	}
@@ -133,7 +169,7 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *st
 	stmtString := "insert into cbox_metadata set item_type=?,uid=?,fileid_prefix=?,fileid=?,tag_key=?,tag_val=?"
 	stmtValues := []interface{}{itemType, u.Account, prefix, fileID, key, val}
 
-	stmt, err := lm.db.Prepare(stmtString)
+	stmt, err := db.Prepare(stmtString)
 	if err != nil {
 		l.Error("error preparing stmt", zap.Error(err))
 		return err
@@ -157,6 +193,11 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *st
 */
 
 func (lm *tagManager) UnSetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
+	db, err := lm.getDB()
+	if err != nil {
+		return errors.Wrap(err, "tagdb: error getting db")
+	}
+
 	var fileID string
 	if md.MigId != "" {
 		fileID = md.MigId
@@ -178,7 +219,7 @@ func (lm *tagManager) UnSetTag(ctx context.Context, u *user.User, key, val strin
 
 	stmtString := "delete from cbox_metadata where uid=? and fileid_prefix=? and fileid=? and tag_key=?"
 	stmtValues := []interface{}{u.Account, prefix, fileID, key}
-	stmt, err := lm.db.Prepare(stmtString)
+	stmt, err := db.Prepare(stmtString)
 	if err != nil {
 		return errors.Wrapf(err, "tagdb: error preparing statement=%s", stmtString)
 	}
@@ -196,12 +237,50 @@ func (lm *tagManager) UnSetTag(ctx context.Context, u *user.User, key, val strin
 	return nil
 }
 
-func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key string) ([]*tag.Tag, error) {
-	query := "select id, item_type, fileid_prefix, fileid, coalesce(tag_val, '') as tag_val from cbox_metadata where uid=? and tag_key=?"
-	rows, err := lm.db.Query(query, u.Account, key)
-	if err != nil {
-		return nil, err
+type dbTag struct {
+	id       int64
+	itemType int
+	uid      string
+	prefix   string
+	fileID   string
+	key      string
+	value    string
+}
+
+func (lm *tagManager) convertToTag(dbTag *dbTag) *tag.Tag {
+	var tagType tag.TagType
+	if dbTag.itemType == 0 {
+		tagType = tag.TagTypeDirectory
+	} else {
+		tagType = tag.TagTypeFile
 	}
+
+	fn := joinFileID(dbTag.prefix, dbTag.fileID)
+
+	t := &tag.Tag{
+		ID:       dbTag.id,
+		Type:     tagType,
+		Filename: fn,
+		Key:      dbTag.key,
+		Value:    dbTag.value,
+		Owner:    dbTag.uid,
+	}
+
+	return t
+}
+
+func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key string) ([]*tag.Tag, error) {
+	db, err := lm.getDB()
+	if err != nil {
+		return nil, errors.Wrap(err, "tagdb: error getting db")
+	}
+
+	query := "select id, item_type, fileid_prefix, fileid, coalesce(tag_val, '') as tag_val from cbox_metadata where uid=? and tag_key=?"
+	rows, err := db.Query(query, u.Account, key)
+	if err != nil {
+		return nil, errors.Wrapf(err, "tagdb: error getting tags for key=%s", key)
+	}
+
 	defer rows.Close()
 
 	var (
@@ -209,18 +288,20 @@ func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key strin
 		itemType     int
 		fileIDPrefix string
 		fileID       string
-		tagVal       string
+		value        string
 	)
 
 	tags := []*tag.Tag{}
 	for rows.Next() {
-		err := rows.Scan(&id, &itemType, &fileIDPrefix, &fileID, &tagVal)
+		err := rows.Scan(&id, &itemType, &fileIDPrefix, &fileID, &value)
 		if err != nil {
 			return nil, err
 		}
 
-		tag := &tag.Tag{ID: id, ItemType: tag.Tag_ItemType(itemType), Uid: u.Account, FileIdPrefix: fileIDPrefix, FileId: fileID, TagKey: key, TagValue: tagVal}
+		dbTag := &dbTag{id: id, itemType: itemType, uid: u.Account, prefix: fileIDPrefix, fileID: fileID, key: key, value: value}
+		tag := lm.convertToTag(dbTag)
 
+		/* TODO refactor outside
 		if tag.ItemType == tag.Tag_FILE {
 			fileID = joinFileID(tag.FileIdPrefix, tag.FileId)
 			md, err := lm.vfs.GetMetadata(ctx, fileID)
@@ -240,29 +321,30 @@ func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key strin
 			_, id := splitFileID(md.Id)
 			tag.FileId = id
 		}
+		*/
 
 		tags = append(tags, tag)
 	}
 
 	err = rows.Err()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "tagdb: error getting tags")
 	}
 
 	return tags, nil
 }
 
 func getFileIDFromVersionFolder(p string) string {
-	basename := gopath.Base(p)
+	basename := path.Base(p)
 	basename = strings.TrimPrefix(basename, "/")
 	basename = strings.TrimPrefix(basename, versionPrefix)
-	filename := gopath.Join(gopath.Dir(p), basename)
+	filename := path.Join(path.Dir(p), basename)
 	return filename
 }
 
 func getVersionFolder(p string) string {
-	basename := gopath.Base(p)
-	versionFolder := gopath.Join(gopath.Dir(p), versionPrefix+basename)
+	basename := path.Base(p)
+	versionFolder := path.Join(path.Dir(p), versionPrefix+basename)
 	return versionFolder
 }
 
@@ -278,14 +360,7 @@ func joinFileID(prefix, inode string) string {
 	return strings.Join([]string{prefix, inode}, ":")
 }
 
-func getUserFromContext(ctx context.Context) (*tag.User, error) {
-	u, ok := tag.ContextGetUser(ctx)
-	if !ok {
-		return nil, tag.NewError(tag.ContextUserRequiredError)
-	}
-	return u, nil
-}
-
+/*
 func (lm *tagManager) getVersionFolderID(ctx context.Context, p string) (string, error) {
 	versionFolder := getVersionFolder(p)
 	md, err := lm.vfs.GetMetadata(ctx, versionFolder)
@@ -300,6 +375,7 @@ func (lm *tagManager) getVersionFolderID(ctx context.Context, p string) (string,
 	}
 	return md.Id, nil
 }
+*/
 
 type tagNotFoundError string
 
