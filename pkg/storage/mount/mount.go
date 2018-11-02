@@ -7,20 +7,19 @@ import (
 	"path"
 	"strings"
 
-	"github.com/cernbox/reva/api"
-	"github.com/grpc-ecosystem/go-grpc-middleware/tags/zap"
-	"go.uber.org/zap"
+	"github.com/cernbox/reva/pkg/storage"
+	"github.com/pkg/errors"
 )
 
 // New will return a new mount with specific mount options.
-func New(mountID, mountPoint string, opts *api.MountOptions, s api.Storage) api.Mount {
+func New(mountID, mountPoint string, opts *storage.MountOptions, s storage.Storage) storage.Mount {
 	mountPoint = path.Clean(mountPoint)
 	if mountPoint != "/" {
 		mountPoint = strings.TrimSuffix(mountPoint, "/")
 	}
 
 	if opts == nil {
-		opts = &api.MountOptions{}
+		opts = &storage.MountOptions{}
 	}
 
 	m := &mount{storage: s,
@@ -32,11 +31,11 @@ func New(mountID, mountPoint string, opts *api.MountOptions, s api.Storage) api.
 }
 
 type mount struct {
-	storage      api.Storage
+	storage      storage.Storage
 	mountPoint   string
 	mountPointId string
-	mountOptions *api.MountOptions
-	logger       *zap.Logger
+	mountOptions *storage.MountOptions
+	logger       *logger
 }
 
 func (m *mount) isReadOnly() bool {
@@ -50,13 +49,13 @@ func (m *mount) isSharingEnabled() bool {
 	return !m.mountOptions.SharingDisabled
 }
 
-func (m *mount) GetMountPoint() string              { return m.mountPoint }
-func (m *mount) GetMountPointId() string            { return m.mountPointId }
-func (m *mount) GetMountOptions() *api.MountOptions { return m.mountOptions }
-func (m *mount) GetStorage() api.Storage            { return m.storage }
+func (m *mount) GetMountPoint() string                  { return m.mountPoint }
+func (m *mount) GetMountPointId() string                { return m.mountPointId }
+func (m *mount) GetMountOptions() *storage.MountOptions { return m.mountOptions }
+func (m *mount) GetStorage() storage.Storage            { return m.storage }
 
-func (m *mount) GetQuota(ctx context.Context, path string) (int, int, error) {
-	p, _, err := m.getInternalPath(ctx, path)
+func (m *mount) GetQuota(ctx context.Context, fn string) (int, int, error) {
+	p, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -75,55 +74,60 @@ func (m *mount) GetPathByID(ctx context.Context, id string) (string, error) {
 	return path.Join(m.GetMountPoint(), p), nil
 }
 
-func (m *mount) SetACL(ctx context.Context, path string, readOnly bool, recipient *api.ShareRecipient, shareList []*api.FolderShare) error {
+func (m *mount) SetACL(ctx context.Context, fn string, a *storage.ACL) error {
 	if !m.isSharingEnabled() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("sharing-disabled mount")
+		err := permissionDeniedError("sharing is disabled")
+		return errors.Wrapf(err, "mount: permission denied to set acl for fn=%s", fn)
 	}
-	p, _, err := m.getInternalPath(ctx, path)
+	p, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return err
 	}
-	return m.storage.SetACL(ctx, p, readOnly, recipient, shareList)
+	return m.storage.SetACL(ctx, p, a)
 }
 
-func (m *mount) UpdateACL(ctx context.Context, path string, readOnly bool, recipient *api.ShareRecipient, shareList []*api.FolderShare) error {
+func (m *mount) UpdateACL(ctx context.Context, fn string, a *storage.ACL) error {
 	if !m.isSharingEnabled() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("sharing-disabled mount")
+		err := permissionDeniedError("sharing is disabled")
+		return errors.Wrapf(err, "mount: permission denied to set acl for fn=%s", fn)
 	}
-	p, _, err := m.getInternalPath(ctx, path)
+	p, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return err
 	}
-	return m.storage.UpdateACL(ctx, p, readOnly, recipient, shareList)
+	return m.storage.UpdateACL(ctx, p, a)
 }
 
-func (m *mount) UnsetACL(ctx context.Context, path string, recipient *api.ShareRecipient, shareList []*api.FolderShare) error {
+func (m *mount) UnsetACL(ctx context.Context, fn string, a *storage.ACL) error {
 	if !m.isSharingEnabled() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("sharing-disabled mount")
+		err := permissionDeniedError("sharing is disabled")
+		return errors.Wrapf(err, "mount: permission denied to set acl for fn=%s", fn)
 	}
-	p, _, err := m.getInternalPath(ctx, path)
+	p, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return err
 	}
-	return m.storage.UnsetACL(ctx, p, recipient, shareList)
+	return m.storage.UnsetACL(ctx, p, a)
 }
 
-func (m *mount) CreateDir(ctx context.Context, path string) error {
+func (m *mount) CreateDir(ctx context.Context, fn string) error {
 	if m.isReadOnly() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("read-only mount")
+		err := permissionDeniedError("mount is read-only")
+		return errors.Wrapf(err, "mount: create dir denied for fn=%s because mount is read-only", fn)
 	}
-	p, _, err := m.getInternalPath(ctx, path)
+	p, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return err
 	}
 	return m.storage.CreateDir(ctx, p)
 }
 
-func (m *mount) Delete(ctx context.Context, path string) error {
+func (m *mount) Delete(ctx context.Context, fn string) error {
 	if m.isReadOnly() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("read-only mount")
+		err := permissionDeniedError("mount is read-only")
+		return errors.Wrapf(err, "mount: delete denied for fn=%s because mount is read-only", fn)
 	}
-	p, _, err := m.getInternalPath(ctx, path)
+	p, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return err
 	}
@@ -132,7 +136,8 @@ func (m *mount) Delete(ctx context.Context, path string) error {
 
 func (m *mount) Move(ctx context.Context, oldPath, newPath string) error {
 	if m.isReadOnly() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("read-only mount")
+		err := permissionDeniedError("mount is read-only")
+		return errors.Wrapf(err, "mount: move denied for oldPath=%s newPath=%s because mount is read-only", oldPath, newPath)
 	}
 	op, _, err := m.getInternalPath(ctx, oldPath)
 	if err != nil {
@@ -144,24 +149,23 @@ func (m *mount) Move(ctx context.Context, oldPath, newPath string) error {
 	}
 	return m.storage.Move(ctx, op, np)
 }
-func (m *mount) GetMetadata(ctx context.Context, p string) (*api.Metadata, error) {
-	l := ctx_zap.Extract(ctx)
-	l.Debug("GetMetadata", zap.String("path", p))
-
+func (m *mount) GetMD(ctx context.Context, p string) (*storage.MD, error) {
 	internalPath, mountPrefix, err := m.getInternalPath(ctx, p)
 	if err != nil {
 		return nil, err
 	}
 
-	fi, err := m.storage.GetMetadata(ctx, internalPath)
+	fi, err := m.storage.GetMD(ctx, internalPath)
 	if err != nil {
 		return nil, err
 	}
 
 	internalPath = path.Clean(fi.Path)
 	fi.Path = path.Join(mountPrefix, internalPath)
-	l.Debug("path conversion: internal => external", zap.String("external", fi.Path), zap.String("internal", internalPath))
-	fi.Id = m.GetMountPointId() + fi.Id
+
+	m.logger.logf(ctx, "translate fn from inner=%s to outter=%s", internalPath, fi.Path)
+
+	fi.ID = m.GetMountPointId() + fi.ID
 	if fi.IsShareable {
 		fi.IsShareable = m.isSharingEnabled()
 	}
@@ -172,10 +176,7 @@ func (m *mount) GetMetadata(ctx context.Context, p string) (*api.Metadata, error
 	return fi, nil
 }
 
-func (m *mount) ListFolder(ctx context.Context, p string) ([]*api.Metadata, error) {
-	l := ctx_zap.Extract(ctx)
-	l.Debug("ListFolder", zap.String("path", p))
-
+func (m *mount) ListFolder(ctx context.Context, p string) ([]*storage.MD, error) {
 	internalPath, mountPrefix, err := m.getInternalPath(ctx, p)
 	if err != nil {
 		return nil, err
@@ -193,8 +194,8 @@ func (m *mount) ListFolder(ctx context.Context, p string) ([]*api.Metadata, erro
 		internalPath := path.Clean(f.Path)
 		// add mount prefix
 		f.Path = path.Join(mountPrefix, internalPath)
-		l.Debug("path conversion: internal => external", zap.String("external", f.Path), zap.String("internal", internalPath))
-		f.Id = m.GetMountPointId() + f.Id
+		m.logger.logf(ctx, "fn translate from inner=%s to outter=%s", internalPath, f.Path)
+		f.ID = m.GetMountPointId() + f.ID
 		if f.IsShareable {
 			f.IsShareable = m.isSharingEnabled()
 		}
@@ -206,60 +207,63 @@ func (m *mount) ListFolder(ctx context.Context, p string) ([]*api.Metadata, erro
 	return finfos, nil
 }
 
-func (m *mount) Upload(ctx context.Context, path string, r io.ReadCloser) error {
+func (m *mount) Upload(ctx context.Context, fn string, r io.ReadCloser) error {
 	if m.isReadOnly() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("read-only mount")
+		err := permissionDeniedError("mount is read-only")
+		return errors.Wrapf(err, "mount: create dir denied for fn=%s because mount is read-only", fn)
 	}
-	internalPath, _, err := m.getInternalPath(ctx, path)
+	internalPath, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return err
 	}
 	return m.storage.Upload(ctx, internalPath, r)
 }
 
-func (m *mount) Download(ctx context.Context, path string) (io.ReadCloser, error) {
-	internalPath, _, err := m.getInternalPath(ctx, path)
+func (m *mount) Download(ctx context.Context, fn string) (io.ReadCloser, error) {
+	internalPath, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return nil, err
 	}
 	return m.storage.Download(ctx, internalPath)
 }
 
-func (m *mount) ListRevisions(ctx context.Context, path string) ([]*api.Revision, error) {
-	internalPath, _, err := m.getInternalPath(ctx, path)
+func (m *mount) ListRevisions(ctx context.Context, fn string) ([]*storage.Revision, error) {
+	internalPath, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return nil, err
 	}
 	return m.storage.ListRevisions(ctx, internalPath)
 }
 
-func (m *mount) DownloadRevision(ctx context.Context, path, revisionKey string) (io.ReadCloser, error) {
-	internalPath, _, err := m.getInternalPath(ctx, path)
+func (m *mount) DownloadRevision(ctx context.Context, fn, revisionKey string) (io.ReadCloser, error) {
+	internalPath, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return nil, err
 	}
 	return m.storage.DownloadRevision(ctx, internalPath, revisionKey)
 }
 
-func (m *mount) RestoreRevision(ctx context.Context, path, revisionKey string) error {
+func (m *mount) RestoreRevision(ctx context.Context, fn, revisionKey string) error {
 	if m.isReadOnly() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("read-only mount")
+		err := permissionDeniedError("mount is read-only")
+		return errors.Wrapf(err, "mount: create dir denied for fn=%s because mount is read-only", fn)
 	}
-	internalPath, _, err := m.getInternalPath(ctx, path)
+	internalPath, _, err := m.getInternalPath(ctx, fn)
 	if err != nil {
 		return err
 	}
 	return m.storage.RestoreRevision(ctx, internalPath, revisionKey)
 }
 
-func (m *mount) EmptyRecycle(ctx context.Context, path string) error {
+func (m *mount) EmptyRecycle(ctx context.Context, fn string) error {
 	if m.isReadOnly() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("read-only mount")
+		err := permissionDeniedError("mount is read-only")
+		return errors.Wrapf(err, "mount: create dir denied for fn=%s because mount is read-only", fn)
 	}
-	return m.storage.EmptyRecycle(ctx, path)
+	return m.storage.EmptyRecycle(ctx, fn)
 }
 
-func (m *mount) ListRecycle(ctx context.Context, p string) ([]*api.RecycleEntry, error) {
+func (m *mount) ListRecycle(ctx context.Context, p string) ([]*storage.RecycleItem, error) {
 	entries, err := m.storage.ListRecycle(ctx, p)
 	if err != nil {
 		return nil, err
@@ -271,51 +275,85 @@ func (m *mount) ListRecycle(ctx context.Context, p string) ([]*api.RecycleEntry,
 	return entries, nil
 }
 
-func (m *mount) RestoreRecycleEntry(ctx context.Context, restoreKey string) error {
+func (m *mount) RestoreRecycleItem(ctx context.Context, restoreKey string) error {
 	if m.isReadOnly() {
-		return api.NewError(api.StoragePermissionDeniedErrorCode).WithMessage("read-only mount")
+		err := permissionDeniedError("mount is read-only")
+		return errors.Wrapf(err, "mount: restore recycle denied for key=%s because mount is read-only", restoreKey)
 	}
 	internalRestoreKey, err := m.getInternalRestoreKey(ctx, restoreKey)
 	if err != nil {
 		return err
 	}
-	return m.storage.RestoreRecycleEntry(ctx, internalRestoreKey)
+	return m.storage.RestoreRecycleItem(ctx, internalRestoreKey)
 }
 
 func (m *mount) getInternalIDPath(ctx context.Context, p string) (string, error) {
 	// home:387/docs
 	tokens := strings.Split(p, "/")
 	if len(tokens) != 1 {
-		return "", api.NewError(api.PathInvalidError).WithMessage("path is not id-based: " + p)
+		err := pathInvalidError("fn is not id-based: " + p)
+		return "", errors.Wrap(err, "path is invalid")
 	}
+
 	mount := tokens[0]
 	if mount == "" {
-		return "", api.NewError(api.PathInvalidError).WithMessage("path is not id-based: " + p)
+		err := pathInvalidError("fn is not id-based: " + p)
+		return "", errors.Wrap(err, "path is invalid")
 	}
 
 	tokens = strings.Split(mount, ":")
 	if len(tokens) != 2 {
-		return "", api.NewError(api.PathInvalidError).WithMessage("path is not id-based: " + p)
+		err := pathInvalidError("fn is not id-based: " + p)
+		return "", errors.Wrap(err, "path is invalid")
 	}
 	return tokens[1], nil
 }
 
 func (m *mount) getInternalRestoreKey(ctx context.Context, restoreKey string) (string, error) {
-	l := ctx_zap.Extract(ctx)
 	if strings.HasPrefix(restoreKey, m.mountPointId) {
 		internalRestoreKey := strings.TrimPrefix(restoreKey, m.mountPointId)
-		l.Debug("restore key conversion: external => internal", zap.String("external", restoreKey), zap.String("internal", internalRestoreKey))
 		return internalRestoreKey, nil
 	}
-	return "", api.NewError(api.PathInvalidError).WithMessage("invalid  restore key for this mount")
+	err := pathInvalidError("mount: invalid restore key for this mount")
+	return "", errors.Wrap(err, "mount: invalid path")
 
 }
 func (m *mount) getInternalPath(ctx context.Context, p string) (string, string, error) {
-	l := ctx_zap.Extract(ctx)
 	if strings.HasPrefix(p, m.mountPoint) {
 		internalPath := path.Join("/", strings.TrimPrefix(p, m.mountPoint))
-		l.Debug("path conversion: external => internal", zap.String("external", p), zap.String("internal", internalPath), zap.String("mount", m.mountPoint))
 		return internalPath, m.mountPoint, nil
 	}
-	return "", "", api.NewError(api.PathInvalidError).WithMessage("invalid path for this mount. mountpoint:" + m.mountPoint + " path:" + p)
+	err := pathInvalidError("mount: invalid fn for this mount. mountpoint:" + m.mountPoint + " fn:" + p)
+	return "", "", errors.Wrap(err, "mount: invalid path")
 }
+
+type logger struct {
+	out io.Writer
+	key interface{}
+}
+
+func (l *logger) log(ctx context.Context, msg string) {
+	trace := l.getTraceFromCtx(ctx)
+	fmt.Fprintf(l.out, "eosclient: trace=%s %s", trace, msg)
+}
+
+func (l *logger) logf(ctx context.Context, msg string, params ...interface{}) {
+	trace := l.getTraceFromCtx(ctx)
+	fmt.Fprintf(l.out, "eosclient: trace=%s %s", trace, msg)
+}
+
+func (l *logger) getTraceFromCtx(ctx context.Context) string {
+	trace, _ := ctx.Value(l.key).(string)
+	if trace == "" {
+		trace = "notrace"
+	}
+	return trace
+}
+
+type permissionDeniedError string
+type pathInvalidError string
+
+func (e permissionDeniedError) Error() string       { return string(e) }
+func (e permissionDeniedError) IsPermissionDenied() {}
+
+func (e pathInvalidError) Error() string { return string(e) }

@@ -12,9 +12,8 @@ const (
 	ACLModeRead  = ACLMode(1)      // 1
 	ACLModeWrite = ACLMode(1 << 1) // 2
 
-	ACLTypeUser      ACLType = "user"
-	ACLTypeGroup     ACLType = "group"
-	ACLTypeUnixGroup ACLType = "unixgroup"
+	ACLTypeUser  ACLType = "user"
+	ACLTypeGroup ACLType = "group"
 )
 
 type Storage interface {

@@ -206,8 +206,6 @@ func getEosACLType(acl *storage.ACL) eosclient.ACLType {
 		return eosclient.ACLTypeUser
 	case storage.ACLTypeGroup:
 		return eosclient.ACLTypeGroup
-	case storage.ACLTypeUnixGroup:
-		return eosclient.ACLTypeUnixGroup
 	}
 
 	panic(acl)

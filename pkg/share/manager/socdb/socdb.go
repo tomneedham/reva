@@ -1,4 +1,4 @@
-package ocdb
+package ssocdb
 
 import (
 	"context"
@@ -73,7 +73,7 @@ func (sm *shareManager) rejectShare(ctx context.Context, u *user.User, id string
 func (sm *shareManager) GetReceivedShare(ctx context.Context, u *user.User, id string) (*share.Share, error) {
 	dbShare, err := sm.getDBShareWithMe(ctx, u, id)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error retrieving db share %s for user %s", id, u.Account)
+		return nil, errors.Wrapf(err, "socdb: error retrieving db share %s for user %s", id, u.Account)
 	}
 
 	share, err := sm.convertToReceivedShare(ctx, dbShare)
@@ -91,7 +91,7 @@ func (sm *shareManager) ListReceivedShares(ctx context.Context, u *user.User) ([
 	for _, dbShare := range dbShares {
 		share, err := sm.convertToReceivedShare(ctx, dbShare)
 		if err != nil {
-			err := errors.Wrap(err, "ocdb: error converting share")
+			err := errors.Wrap(err, "socdb: error converting share")
 			sm.logger.log(ctx, err.Error())
 			continue
 		}
@@ -120,7 +120,7 @@ func (sm *shareManager) ListShares(ctx context.Context, u *user.User, md *storag
 	for _, dbShare := range dbShares {
 		share, err := sm.convertToShare(ctx, dbShare)
 		if err != nil {
-			err := errors.Wrap(err, "ocdb: error converting dbshare to share")
+			err := errors.Wrap(err, "socdb: error converting dbshare to share")
 			sm.logger.log(ctx, err.Error())
 			continue
 		}
@@ -133,7 +133,7 @@ func (sm *shareManager) ListShares(ctx context.Context, u *user.User, md *storag
 func (sm *shareManager) UpdateShare(ctx context.Context, u *user.User, id string, mode share.ACLMode) (*share.Share, error) {
 	s, err := sm.GetShare(ctx, u, id)
 	if err != nil {
-		return nil, errors.Wrap(err, "ocdb: error geting share")
+		return nil, errors.Wrap(err, "socdb: error geting share")
 	}
 
 	stmtString := "update oc_share set "
@@ -158,17 +158,17 @@ func (sm *shareManager) UpdateShare(ctx context.Context, u *user.User, id string
 
 	stmt, err := sm.db.Prepare(stmtString)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error preparing statement %s with values %v", stmtString, stmtValues)
+		return nil, errors.Wrapf(err, "socdb: error preparing statement %s with values %v", stmtString, stmtValues)
 	}
 
 	_, err = stmt.Exec(stmtValues...)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error executing statement %s with values %v", stmtString, stmtValues)
+		return nil, errors.Wrapf(err, "socdb: error executing statement %s with values %v", stmtString, stmtValues)
 	}
 
 	s, err = sm.GetShare(ctx, u, id)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error retrieving share with id=%s after being updated", id)
+		return nil, errors.Wrapf(err, "socdb: error retrieving share with id=%s after being updated", id)
 	}
 
 	return s, nil
@@ -193,27 +193,27 @@ func (sm *shareManager) UpdateShare(ctx context.Context, u *user.User, id string
 func (sm *shareManager) Unshare(ctx context.Context, u *user.User, id string) error {
 	_, err := sm.GetShare(ctx, u, id)
 	if err != nil {
-		return errors.Wrap(err, "ocdb: error retrieving share")
+		return errors.Wrap(err, "socdb: error retrieving share")
 	}
 
 	stmt, err := sm.db.Prepare("delete from oc_share where uid_owner=? and id=?")
 	if err != nil {
-		return errors.Wrap(err, "ocdb: error preparing statement")
+		return errors.Wrap(err, "socdb: error preparing statement")
 	}
 
 	res, err := stmt.Exec(u.Account, id)
 	if err != nil {
-		return errors.Wrap(err, "ocdb: error executing statement")
+		return errors.Wrap(err, "socdb: error executing statement")
 	}
 
 	rowCnt, err := res.RowsAffected()
 	if err != nil {
-		return errors.Wrap(err, "ocdb: error retrieving affected rows")
+		return errors.Wrap(err, "socdb: error retrieving affected rows")
 	}
 
 	if rowCnt == 0 {
 		err := shareNotFoundError(id)
-		return errors.Wrap(err, "ocdb: share not found")
+		return errors.Wrap(err, "socdb: share not found")
 	}
 
 	return nil
@@ -235,12 +235,12 @@ func (sm *shareManager) Unshare(ctx context.Context, u *user.User, id string) er
 func (sm *shareManager) GetShare(ctx context.Context, u *user.User, id string) (*share.Share, error) {
 	dbShare, err := sm.getDBShare(ctx, u, id)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error retrieving share with id=%s", id)
+		return nil, errors.Wrapf(err, "socdb: error retrieving share with id=%s", id)
 	}
 
 	share, err := sm.convertToShare(ctx, dbShare)
 	if err != nil {
-		return nil, errors.Wrap(err, "ocdb: error converting dbshare to share")
+		return nil, errors.Wrap(err, "socdb: error converting dbshare to share")
 	}
 
 	return share, nil
@@ -268,7 +268,7 @@ func (sm *shareManager) Share(ctx context.Context, u *user.User, md *storage.MD,
 
 	fileSource, err := strconv.ParseUint(itemSource, 10, 64)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error parsing itemSource=%s to int", itemSource)
+		return nil, errors.Wrapf(err, "socdb: error parsing itemSource=%s to int", itemSource)
 	}
 
 	shareType := 0 // share.ACLTypeUser
@@ -283,22 +283,22 @@ func (sm *shareManager) Share(ctx context.Context, u *user.User, md *storage.MD,
 
 	stmt, err := sm.db.Prepare(stmtString)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error preparing statement=%s", stmtString)
+		return nil, errors.Wrapf(err, "socdb: error preparing statement=%s", stmtString)
 	}
 
 	result, err := stmt.Exec(stmtValues...)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error executing statement=%s with values=%v", stmtString, stmtValues)
+		return nil, errors.Wrapf(err, "socdb: error executing statement=%s with values=%v", stmtString, stmtValues)
 	}
 
 	lastId, err := result.LastInsertId()
 	if err != nil {
-		return nil, errors.Wrap(err, "ocdb: error retrieving last id")
+		return nil, errors.Wrap(err, "socdb: error retrieving last id")
 	}
 
 	share, err := sm.GetShare(ctx, u, fmt.Sprintf("%d", lastId))
 	if err != nil {
-		return nil, errors.Wrap(err, "ocdb: error retrieving share")
+		return nil, errors.Wrap(err, "socdb: error retrieving share")
 	}
 
 	return share, nil
@@ -359,7 +359,7 @@ type dbShare struct {
 func (sm *shareManager) getDBShareWithMe(ctx context.Context, u *user.User, id string) (*dbShare, error) {
 	intID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error parsing id=%s to int64", id)
+		return nil, errors.Wrapf(err, "socdb: error parsing id=%s to int64", id)
 	}
 
 	var (
@@ -394,7 +394,7 @@ func (sm *shareManager) getDBShareWithMe(ctx context.Context, u *user.User, id s
 	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state); err != nil {
 		if err == sql.ErrNoRows {
 			err = shareNotFoundError(id)
-			return nil, errors.Wrap(err, "ocdb: error retrieving share")
+			return nil, errors.Wrap(err, "socdb: error retrieving share")
 		}
 		return nil, err
 	}
@@ -459,7 +459,7 @@ func (sm *shareManager) getDBSharesWithMe(ctx context.Context, u *user.User) ([]
 func (sm *shareManager) getDBShare(ctx context.Context, u *user.User, id string) (*dbShare, error) {
 	intID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
-		return nil, errors.Wrapf(err, "ocdb: error parsing id=%s to int64", id)
+		return nil, errors.Wrapf(err, "socdb: error parsing id=%s to int64", id)
 	}
 
 	var (
@@ -476,7 +476,7 @@ func (sm *shareManager) getDBShare(ctx context.Context, u *user.User, id string)
 	if err := sm.db.QueryRow(query, u.Account, id).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType); err != nil {
 		if err == sql.ErrNoRows {
 			err := shareNotFoundError(id)
-			return nil, errors.Wrap(err, "ocdb: share not found")
+			return nil, errors.Wrap(err, "socdb: share not found")
 		}
 		return nil, err
 	}
@@ -538,7 +538,7 @@ func (sm *shareManager) getShareACL(ctx context.Context, dbShare *dbShare) (*sha
 	} else if dbShare.ShareType == 1 {
 		aclType = share.ACLTypeGroup
 	} else {
-		return nil, errors.Wrapf(aclTypeNotValidError(""), "ocdb: aclType=%d not valid", aclType)
+		return nil, errors.Wrapf(aclTypeNotValidError(""), "socdb: aclType=%d not valid", aclType)
 	}
 
 	if dbShare.Permissions == 1 {
@@ -553,7 +553,7 @@ func (sm *shareManager) getShareACL(ctx context.Context, dbShare *dbShare) (*sha
 func (sm *shareManager) convertToReceivedShare(ctx context.Context, dbShare *dbShare) (*share.Share, error) {
 	acl, err := sm.getShareACL(ctx, dbShare)
 	if err != nil {
-		return nil, errors.Wrap(err, "ocdb: error getting share acl from dbshare")
+		return nil, errors.Wrap(err, "socdb: error getting share acl from dbshare")
 	}
 
 	path := joinFileID(dbShare.Prefix, dbShare.ItemSource)
@@ -571,7 +571,7 @@ func (sm *shareManager) convertToReceivedShare(ctx context.Context, dbShare *dbS
 func (sm *shareManager) convertToShare(ctx context.Context, dbShare *dbShare) (*share.Share, error) {
 	acl, err := sm.getShareACL(ctx, dbShare)
 	if err != nil {
-		return nil, errors.Wrap(err, "ocdb: error getting share acl from dbshare")
+		return nil, errors.Wrap(err, "socdb: error getting share acl from dbshare")
 	}
 
 	path := joinFileID(dbShare.Prefix, dbShare.ItemSource)
