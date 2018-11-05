@@ -8,15 +8,22 @@ import (
 )
 
 const (
-	ACLModeReadOnly  ACLMode = "read-only"
+	// ACLModeReadOnly specifies that the share is read-only.
+	ACLModeReadOnly ACLMode = "read-only"
+
+	// ACLModeReadWrite specifies that the share is read-writable.
 	ACLModeReadWrite ACLMode = "read-write"
 
+	// ACLTypeDirectory specifies that the share points to a directory.
 	ACLTypeDirectory ACLType = "directory"
-	ACLTypeFile      ACLType = "file"
+
+	// ACLTypeFile specifies that the share points to a file.
+	ACLTypeFile ACLType = "file"
 )
 
 type (
-	PublicShareManager interface {
+	// Manager manipulates public shares.
+	Manager interface {
 		CreatePublicShare(ctx context.Context, u *user.User, md *storage.MD, a *ACL) (*PublicShare, error)
 		UpdatePublicShare(ctx context.Context, u *user.User, id string, up *UpdatePolicy, a *ACL) (*PublicShare, error)
 		GetPublicShare(ctx context.Context, u *user.User, id string) (*PublicShare, error)
@@ -26,6 +33,7 @@ type (
 		GetPublicShareByToken(ctx context.Context, token string) (*PublicShare, error)
 	}
 
+	// PublicShare represents a public share.
 	PublicShare struct {
 		ID          string
 		Token       string
@@ -36,6 +44,7 @@ type (
 		ACL         *ACL
 	}
 
+	// ACL is the the acl to use when creating or updating public shares.
 	ACL struct {
 		Password   string
 		Expiration uint64
@@ -44,13 +53,17 @@ type (
 		Type       ACLType
 	}
 
+	// UpdatePolicy specifies which attributes to update when calling UpdateACL.
 	UpdatePolicy struct {
 		SetPassword   bool
 		SetExpiration bool
 		SetMode       bool
 	}
 
+	// ACLMode represents the mode for the share (read-only, read-write, ...)
 	ACLMode string
+
+	// ACLType represents the type of file the share points to (file, directory, ...)
 	ACLType string
 )
 

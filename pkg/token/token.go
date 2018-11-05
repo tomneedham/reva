@@ -7,8 +7,8 @@ import (
 // Claims is the map of attributes to encode into a token
 type Claims map[string]interface{}
 
-// TokenManager is the interface to implement to sign and verify tokens
-type TokenManager interface {
+// Manager is the interface to implement to sign and verify tokens
+type Manager interface {
 	ForgeToken(ctx context.Context, claims Claims) (string, error)
 	DismantleToken(ctx context.Context, token string) (Claims, error)
 }

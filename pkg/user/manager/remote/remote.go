@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
 
+	"github.com/cernbox/reva/pkg/logger"
 	"github.com/cernbox/reva/pkg/user"
 )
 
+// Options are the configuration options to pass to New for creating a new remote user manager.
 type Options struct {
 	RemoteURL                         string
 	Secret                            string
@@ -21,6 +24,8 @@ type Options struct {
 	HTTPTransportDisableKeepAlives    bool
 	HTTPTransportIddleConnTimeout     int
 	HTTPTransportInsecureSkipVerify   bool
+	LoggerOut                         io.Writer
+	LoggerKey                         interface{}
 }
 
 func (opt *Options) init() {
@@ -37,7 +42,8 @@ func (opt *Options) init() {
 	}
 }
 
-func New(opt *Options) user.UserManager {
+// New returns a new user manager that connects to the cboxgroupdaemon.
+func New(opt *Options) user.Manager {
 	if opt == nil {
 		opt = &Options{}
 	}
@@ -54,13 +60,16 @@ func New(opt *Options) user.UserManager {
 	return &userManager{
 		secret:    opt.Secret,
 		remoteURL: opt.RemoteURL,
-		tr:        tr}
+		tr:        tr,
+		logger:    logger.New(opt.LoggerOut, "remote", opt.LoggerKey),
+	}
 }
 
 type userManager struct {
 	remoteURL string
 	secret    string
 	tr        *http.Transport
+	logger    *logger.Logger
 }
 
 func (um *userManager) IsInGroup(ctx context.Context, username, group string) (bool, error) {

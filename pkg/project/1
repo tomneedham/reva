@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cernbox/reva/pkg/project"
-	_ "github.com/go-sql-driver/mysql" // import mysql driver
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 )
 
@@ -30,19 +30,18 @@ func (m *manager) getDB() (*sql.DB, error) {
 	return m.db, nil
 }
 
-// New returns a new project manager that stores the project information in a mysql database.
 func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string) project.Manager {
 	return &manager{dbUsername: dbUsername, dbPassword: dbPassword, dbHost: dbHost, dbName: dbName, dbPort: dbPort}
 }
 
-func (m *manager) GetProject(ctx context.Context, projectName string) (*project.Project, error) {
+func (pm *manager) GetProject(ctx context.Context, projectName string) (*project.Project, error) {
 	var (
 		owner string
 		path  string
 	)
 
 	query := "select eos_relative_path, project_owner from cernbox_project_mapping where project_name=?"
-	if err := m.db.QueryRow(query, projectName).Scan(&path, &owner); err != nil {
+	if err := pm.db.QueryRow(query, projectName).Scan(&path, &owner); err != nil {
 		if err == sql.ErrNoRows {
 			err := projectNotFoundError(projectName)
 			return nil, errors.Wrapf(err, "projdb: projectName=%s not found", projectName)
@@ -69,9 +68,9 @@ func getAdminGroup(name string) string   { return "cernbox-project-" + name + "-
 func getReadersGroup(name string) string { return "cernbox-project-" + name + "-readers" }
 func getWritersGroup(name string) string { return "cernbox-project-" + name + "-writers" }
 
-func (m *manager) GetAllProjects(ctx context.Context) ([]*project.Project, error) {
+func (pm *manager) GetAllProjects(ctx context.Context) ([]*project.Project, error) {
 	query := "select project_name, project_owner, eos_relative_path from cernbox_project_mapping"
-	rows, err := m.db.Query(query)
+	rows, err := pm.db.Query(query)
 	if err != nil {
 		return nil, err
 	}

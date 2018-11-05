@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 )
 
+// New returns an implementation of the token manager that uses JWT as tokens.
 func New(secret string) token.TokenManager {
 	return &manager{secret: secret}
 }

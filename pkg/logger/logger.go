@@ -7,12 +7,17 @@ import (
 	"io/ioutil"
 )
 
+// Logger is a simple logger that logs messages to the given io.Writer.
+// If a key is set, it will check if it is present in the given context
+// and use it as a trace key.
 type Logger struct {
 	out    io.Writer
 	key    interface{}
 	module string
 }
 
+// New returns a new logger that writes messages to an io.Writer with the prefix
+// for the messages given by "module".
 func New(out io.Writer, module string, key interface{}) *Logger {
 	if out == nil {
 		out = ioutil.Discard
@@ -24,12 +29,14 @@ func New(out io.Writer, module string, key interface{}) *Logger {
 	}
 }
 
-func (l *Logger) log(ctx context.Context, msg string) {
+// Log logs the message with the given context.
+func (l *Logger) Log(ctx context.Context, msg string) {
 	trace := l.getTraceFromCtx(ctx)
 	fmt.Fprintf(l.out, "%s: trace=%s %s", l.module, trace, msg)
 }
 
-func (l *Logger) logf(ctx context.Context, msg string, params ...interface{}) {
+// Logf logs the message ala fmt.Printf().
+func (l *Logger) Logf(ctx context.Context, msg string, params ...interface{}) {
 	trace := l.getTraceFromCtx(ctx)
 	fmt.Fprintf(l.out, "%s: trace=%s %s", l.module, trace, fmt.Sprintf(msg, params...))
 }

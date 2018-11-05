@@ -10,26 +10,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cernbox/reva/pkg/logger"
 	"github.com/cernbox/reva/pkg/share"
 	"github.com/cernbox/reva/pkg/storage"
 	"github.com/cernbox/reva/pkg/user"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // import mysql driver
 	"github.com/pkg/errors"
 )
 
-func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string) (share.ShareManager, error) {
+// New returns a new share manager that connects to a mysql database for persistency.
+func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string, logOut io.Writer, logKey interface{}) (share.Manager, error) {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbUsername, dbPassword, dbHost, dbPort, dbName))
 	if err != nil {
 		return nil, err
 	}
 
-	return &shareManager{db: db}, nil
+	logger := logger.New(logOut, "socdb", logKey)
+	return &shareManager{db: db, logger: logger}, nil
 }
 
 type shareManager struct {
 	db     *sql.DB
-	logger *logger
+	logger *logger.Logger
 }
 
 func (sm *shareManager) RejectReceivedShare(ctx context.Context, u *user.User, id string) error {
@@ -92,7 +95,7 @@ func (sm *shareManager) ListReceivedShares(ctx context.Context, u *user.User) ([
 		share, err := sm.convertToReceivedShare(ctx, dbShare)
 		if err != nil {
 			err := errors.Wrap(err, "socdb: error converting share")
-			sm.logger.log(ctx, err.Error())
+			sm.logger.Log(ctx, err.Error())
 			continue
 		}
 		shares = append(shares, share)
@@ -121,7 +124,7 @@ func (sm *shareManager) ListShares(ctx context.Context, u *user.User, md *storag
 		share, err := sm.convertToShare(ctx, dbShare)
 		if err != nil {
 			err := errors.Wrap(err, "socdb: error converting dbshare to share")
-			sm.logger.log(ctx, err.Error())
+			sm.logger.Log(ctx, err.Error())
 			continue
 		}
 		shares = append(shares, share)
@@ -291,12 +294,12 @@ func (sm *shareManager) Share(ctx context.Context, u *user.User, md *storage.MD,
 		return nil, errors.Wrapf(err, "socdb: error executing statement=%s with values=%v", stmtString, stmtValues)
 	}
 
-	lastId, err := result.LastInsertId()
+	lastID, err := result.LastInsertId()
 	if err != nil {
 		return nil, errors.Wrap(err, "socdb: error retrieving last id")
 	}
 
-	share, err := sm.GetShare(ctx, u, fmt.Sprintf("%d", lastId))
+	share, err := sm.GetShare(ctx, u, fmt.Sprintf("%d", lastID))
 	if err != nil {
 		return nil, errors.Wrap(err, "socdb: error retrieving share")
 	}
@@ -596,24 +599,6 @@ func splitFileID(fileID string) (string, string) {
 // joinFileID concatenates the prefix and the inode to form a valid fileID.
 func joinFileID(prefix, inode string) string {
 	return strings.Join([]string{prefix, inode}, ":")
-}
-
-type logger struct {
-	out io.Writer
-	key interface{}
-}
-
-func (l *logger) log(ctx context.Context, msg string) {
-	trace := l.getTraceFromCtx(ctx)
-	fmt.Fprintf(l.out, "eosclient: trace=%s %s", trace, msg)
-}
-
-func (l *logger) getTraceFromCtx(ctx context.Context) string {
-	trace, _ := ctx.Value("traceid").(string)
-	if trace == "" {
-		trace = "notrace"
-	}
-	return trace
 }
 
 type shareNotFoundError string

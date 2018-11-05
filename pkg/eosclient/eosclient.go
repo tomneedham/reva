@@ -14,19 +14,29 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/cernbox/reva/pkg/logger"
+
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
 )
 
+// ACLMode represents the mode for the acl (read-only, read-write, ...)
 type ACLMode string
+
+// ACLType represents the type of of the acl (user, e-group, unix-group, ...)
 type ACLType string
 
 const (
-	ACLModeRead      = "rx"
+	// ACLModeRead specifies that only read and list operations will be allowed on the directory.
+	ACLModeRead = "rx"
+	// ACLModeReadWrite specifies that the directory will be writable.
 	ACLModeReadWrite = "rwx!d"
 
-	ACLTypeUser      ACLType = "u"
-	ACLTypeGroup     ACLType = "egroup"
+	// ACLTypeUser specifies that the acl will be set for an individual user.
+	ACLTypeUser ACLType = "u"
+	// ACLTypeGroup specifies that the acl will be set for a CERN e-group.
+	ACLTypeGroup ACLType = "egroup"
+	// ACLTypeUnixGroup specifies that the acl will be set for a unix group.
 	ACLTypeUnixGroup ACLType = "g"
 
 	rootUser      = "root"
@@ -38,6 +48,7 @@ var (
 	errInvalidACL = errors.New("invalid acl")
 )
 
+// ACL represents an EOS ACL.
 type ACL struct {
 	Target string
 	Mode   ACLMode
@@ -99,7 +110,7 @@ func (opt *Options) init() {
 // It requires the eos-client and xrootd-client packages installed to work.
 type Client struct {
 	opt    *Options
-	logger *logger
+	logger *logger.Logger
 }
 
 // New creates a new client with the given options.
@@ -107,7 +118,7 @@ func New(opt *Options) (*Client, error) {
 	opt.init()
 	c := new(Client)
 	c.opt = opt
-	c.logger = &logger{key: opt.TraceKey, out: opt.LogOutput}
+	c.logger = logger.New(opt.LogOutput, "eosclient", opt.TraceKey)
 	return c, nil
 }
 
@@ -150,7 +161,7 @@ func (c *Client) execute(ctx context.Context, cmd *exec.Cmd) (string, string, er
 	}
 
 	msg := fmt.Sprintf("cmd=%v env=%v exit=%d", cmd.Args, cmd.Env, exitStatus)
-	c.logger.log(ctx, msg)
+	c.logger.Log(ctx, msg)
 
 	if err != nil {
 		err = errors.Wrap(err, "eosclient: error while executing command")
@@ -181,7 +192,7 @@ func (c *Client) AddACL(ctx context.Context, username, path string, a *ACL) erro
 		}
 	}
 
-	sysAcl := aclManager.serialize()
+	sysACL := aclManager.serialize()
 
 	// setting of the sys.acl is only possible from root user
 	unixUser, err := getUnixUser(rootUser)
@@ -189,7 +200,7 @@ func (c *Client) AddACL(ctx context.Context, username, path string, a *ACL) erro
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "attr", "-r", "set", fmt.Sprintf("sys.acl=%s", sysAcl), path)
+	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "attr", "-r", "set", fmt.Sprintf("sys.acl=%s", sysACL), path)
 	_, _, err = c.execute(ctx, cmd)
 	return err
 
@@ -211,7 +222,7 @@ func (c *Client) RemoveACL(ctx context.Context, username, path string, aclType A
 		aclManager.deleteUnixGroup(ctx, recipient)
 	}
 
-	sysAcl := aclManager.serialize()
+	sysACL := aclManager.serialize()
 
 	// setting of the sys.acl is only possible from root user
 	unixUser, err := getUnixUser(rootUser)
@@ -219,7 +230,7 @@ func (c *Client) RemoveACL(ctx context.Context, username, path string, aclType A
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "attr", "-r", "set", fmt.Sprintf("sys.acl=%s", sysAcl), path)
+	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "attr", "-r", "set", fmt.Sprintf("sys.acl=%s", sysACL), path)
 	_, _, err = c.execute(ctx, cmd)
 	return err
 
@@ -236,7 +247,7 @@ func (c *Client) getACLForPath(ctx context.Context, username, path string) (*acl
 		return nil, err
 	}
 
-	aclManager := c.newAclManager(ctx, finfo.SysACL)
+	aclManager := c.newACLManager(ctx, finfo.SysACL)
 	return aclManager, nil
 }
 
@@ -676,6 +687,7 @@ func (c *Client) mapToFileInfo(kv map[string]string) (*FileInfo, error) {
 	return fi, nil
 }
 
+// FileInfo represents the metadata information returned by querying the EOS namespace.
 type FileInfo struct {
 	File      string `json:"eos_file"`
 	Inode     uint64 `json:"inode"`
@@ -690,6 +702,7 @@ type FileInfo struct {
 	TreeCount uint64
 }
 
+// DeletedEntry represents an entry from the trashbin.
 type DeletedEntry struct {
 	RestorePath   string
 	RestoreKey    string
@@ -702,11 +715,11 @@ type aclManager struct {
 	aclEntries []*aclEntry
 }
 
-func (c *Client) newAclManager(ctx context.Context, sysAcl string) *aclManager {
-	tokens := strings.Split(sysAcl, ",")
+func (c *Client) newACLManager(ctx context.Context, sysACL string) *aclManager {
+	tokens := strings.Split(sysACL, ",")
 	aclEntries := []*aclEntry{}
 	for _, t := range tokens {
-		aclEntry, err := newAclEntry(ctx, t)
+		aclEntry, err := newACLEntry(ctx, t)
 		if err == nil {
 			aclEntries = append(aclEntries, aclEntry)
 		}
@@ -843,8 +856,8 @@ func (m *aclManager) deleteUser(ctx context.Context, username string) {
 
 func (m *aclManager) addUser(ctx context.Context, username string, mode ACLMode) error {
 	m.deleteUser(ctx, username)
-	sysAcl := strings.Join([]string{string(ACLTypeUser), username, string(mode)}, ":")
-	newEntry, err := newAclEntry(ctx, sysAcl)
+	sysACL := strings.Join([]string{string(ACLTypeUser), username, string(mode)}, ":")
+	newEntry, err := newACLEntry(ctx, sysACL)
 	if err != nil {
 		return err
 	}
@@ -863,8 +876,8 @@ func (m *aclManager) deleteGroup(ctx context.Context, group string) {
 
 func (m *aclManager) addGroup(ctx context.Context, group string, mode ACLMode) error {
 	m.deleteGroup(ctx, group)
-	sysAcl := strings.Join([]string{string(ACLTypeGroup), group, string(mode)}, ":")
-	newEntry, err := newAclEntry(ctx, sysAcl)
+	sysACL := strings.Join([]string{string(ACLTypeGroup), group, string(mode)}, ":")
+	newEntry, err := newACLEntry(ctx, sysACL)
 	if err != nil {
 		return err
 	}
@@ -883,8 +896,8 @@ func (m *aclManager) deleteUnixGroup(ctx context.Context, unixGroup string) {
 
 func (m *aclManager) addUnixGroup(ctx context.Context, unixGroup string, mode ACLMode) error {
 	m.deleteUnixGroup(ctx, unixGroup)
-	sysAcl := strings.Join([]string{string(ACLTypeUnixGroup), unixGroup, string(mode)}, ":")
-	newEntry, err := newAclEntry(ctx, sysAcl)
+	sysACL := strings.Join([]string{string(ACLTypeUnixGroup), unixGroup, string(mode)}, ":")
+	newEntry, err := newACLEntry(ctx, sysACL)
 	if err != nil {
 		return err
 	}
@@ -900,11 +913,11 @@ func (m *aclManager) readOnlyToEOSPermissions(readOnly bool) string {
 }
 
 func (m *aclManager) serialize() string {
-	sysAcl := []string{}
+	sysACL := []string{}
 	for _, e := range m.aclEntries {
-		sysAcl = append(sysAcl, e.serialize())
+		sysACL = append(sysACL, e.serialize())
 	}
-	return strings.Join(sysAcl, ",")
+	return strings.Join(sysACL, ",")
 }
 
 type aclEntry struct {
@@ -914,8 +927,8 @@ type aclEntry struct {
 }
 
 // u:gonzalhu:rw
-func newAclEntry(ctx context.Context, singleSysAcl string) (*aclEntry, error) {
-	tokens := strings.Split(singleSysAcl, ":")
+func newACLEntry(ctx context.Context, singleSysACL string) (*aclEntry, error) {
+	tokens := strings.Split(singleSysACL, ":")
 	if len(tokens) != 3 {
 		return nil, errInvalidACL
 	}
@@ -942,21 +955,3 @@ type notFoundError string
 
 func (e notFoundError) IsNotFound()   {}
 func (e notFoundError) Error() string { return string(e) }
-
-type logger struct {
-	out io.Writer
-	key interface{}
-}
-
-func (l *logger) log(ctx context.Context, msg string) {
-	trace := l.getTraceFromCtx(ctx)
-	fmt.Fprintf(l.out, "eosclient: trace=%s %s", trace, msg)
-}
-
-func (l *logger) getTraceFromCtx(ctx context.Context) string {
-	trace, _ := ctx.Value("traceid").(string)
-	if trace == "" {
-		trace = "notrace"
-	}
-	return trace
-}

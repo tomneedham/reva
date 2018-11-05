@@ -1,4 +1,4 @@
-package tag_manager_db
+package tagdb
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/cernbox/reva/pkg/tag"
 	"github.com/cernbox/reva/pkg/user"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // import mysql driver
 	"github.com/pkg/errors"
 )
 
@@ -23,22 +23,23 @@ type tagManager struct {
 	dbPort                                 int
 }
 
-func (t *tagManager) getDB() (*sql.DB, error) {
-	if t.db != nil {
-		return t.db, nil
+func (tm *tagManager) getDB() (*sql.DB, error) {
+	if tm.db != nil {
+		return tm.db, nil
 	}
 
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", t.dbUsername, t.dbPassword, t.dbHost, t.dbPort, t.dbName))
+	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", tm.dbUsername, tm.dbPassword, tm.dbHost, tm.dbPort, tm.dbName))
 	if err != nil {
 		return nil, errors.Wrap(err, "tagdb: error connecting to db")
 
 	}
 
-	t.db = db
-	return t.db, nil
+	tm.db = db
+	return tm.db, nil
 }
 
-func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string) tag.TagManager {
+// New returns a new tag manager that connects to a mysql database for persistency.
+func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string) tag.Manager {
 	return &tagManager{
 		dbUsername: dbUsername,
 		dbPassword: dbPassword,
@@ -48,8 +49,8 @@ func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string) tag.T
 	}
 }
 
-func (lm *tagManager) getDBTag(ctx context.Context, u *user.User, prefix, fileID, key string) (*dbTag, error) {
-	db, err := lm.getDB()
+func (tm *tagManager) getDBTag(ctx context.Context, u *user.User, prefix, fileID, key string) (*dbTag, error) {
+	db, err := tm.getDB()
 	if err != nil {
 		return nil, errors.Wrap(err, "tagdb: error getting db")
 	}
@@ -83,8 +84,8 @@ func (lm *tagManager) getDBTag(ctx context.Context, u *user.User, prefix, fileID
 
 }
 
-func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
-	db, err := lm.getDB()
+func (tm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
+	db, err := tm.getDB()
 	if err != nil {
 		return errors.Wrap(err, "tagdb: error getting db")
 	}
@@ -104,7 +105,7 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string,
 	}
 
 	// if tag exists, we don't create a new one
-	if _, err := lm.getDBTag(ctx, u, prefix, fileID, key); err == nil {
+	if _, err := tm.getDBTag(ctx, u, prefix, fileID, key); err == nil {
 		return nil
 	}
 
@@ -130,8 +131,8 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val string,
 }
 
 /*
-func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *storage.MD) error {
-	md, err := lm.vfs.GetMetadata(ctx, path)
+func (tm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *storage.MD) error {
+	md, err := tm.vfs.GetMetadata(ctx, path)
 	if err != nil {
 		l.Error("error getting md for path", zap.String("path", path), zap.Error(err))
 		return err
@@ -152,7 +153,7 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *st
 	} else {
 		itemType = tag.Tag_FILE
 		// if link points to a file we need to use the versions folder inode.
-		versionFolderID, err := lm.getVersionFolderID(ctx, md.Path)
+		versionFolderID, err := tm.getVersionFolderID(ctx, md.Path)
 		_, fileID = splitFileID(versionFolderID)
 		if err != nil {
 			l.Error("error getting versions folder for file", zap.Error(err))
@@ -161,7 +162,7 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *st
 	}
 
 	// if tag exists, we don't create a new one
-	if _, err := lm.getDBTag(ctx, u.Account, prefix, fileID, key); err == nil {
+	if _, err := tm.getDBTag(ctx, u.Account, prefix, fileID, key); err == nil {
 		l.Info("aborting creation of new tag, as tag already exists")
 		return nil
 	}
@@ -192,8 +193,8 @@ func (lm *tagManager) SetTag(ctx context.Context, u *user.User, key, val, md *st
 }
 */
 
-func (lm *tagManager) UnSetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
-	db, err := lm.getDB()
+func (tm *tagManager) UnSetTag(ctx context.Context, u *user.User, key, val string, md *storage.MD) error {
+	db, err := tm.getDB()
 	if err != nil {
 		return errors.Wrap(err, "tagdb: error getting db")
 	}
@@ -208,7 +209,7 @@ func (lm *tagManager) UnSetTag(ctx context.Context, u *user.User, key, val strin
 	prefix, fileID := splitFileID(fileID)
 	/* TODO refactor outside
 	if !md.IsDir {
-		versionFolderID, err := lm.getVersionFolderID(ctx, md.Path)
+		versionFolderID, err := tm.getVersionFolderID(ctx, md.Path)
 		_, fileID = splitFileID(versionFolderID)
 		if err != nil {
 			l.Error("error getting versions folder for file", zap.Error(err))
@@ -247,12 +248,12 @@ type dbTag struct {
 	value    string
 }
 
-func (lm *tagManager) convertToTag(dbTag *dbTag) *tag.Tag {
-	var tagType tag.TagType
+func (tm *tagManager) convertToTag(dbTag *dbTag) *tag.Tag {
+	var tagType tag.Type
 	if dbTag.itemType == 0 {
-		tagType = tag.TagTypeDirectory
+		tagType = tag.TypeDirectory
 	} else {
-		tagType = tag.TagTypeFile
+		tagType = tag.TypeFile
 	}
 
 	fn := joinFileID(dbTag.prefix, dbTag.fileID)
@@ -269,8 +270,8 @@ func (lm *tagManager) convertToTag(dbTag *dbTag) *tag.Tag {
 	return t
 }
 
-func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key string) ([]*tag.Tag, error) {
-	db, err := lm.getDB()
+func (tm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key string) ([]*tag.Tag, error) {
+	db, err := tm.getDB()
 	if err != nil {
 		return nil, errors.Wrap(err, "tagdb: error getting db")
 	}
@@ -299,12 +300,12 @@ func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key strin
 		}
 
 		dbTag := &dbTag{id: id, itemType: itemType, uid: u.Account, prefix: fileIDPrefix, fileID: fileID, key: key, value: value}
-		tag := lm.convertToTag(dbTag)
+		tag := tm.convertToTag(dbTag)
 
 		/* TODO refactor outside
 		if tag.ItemType == tag.Tag_FILE {
 			fileID = joinFileID(tag.FileIdPrefix, tag.FileId)
-			md, err := lm.vfs.GetMetadata(ctx, fileID)
+			md, err := tm.vfs.GetMetadata(ctx, fileID)
 			if err != nil {
 				// TOOD(labkode): log wan here
 				continue
@@ -313,7 +314,7 @@ func (lm *tagManager) GetTagsForKey(ctx context.Context, u *user.User, key strin
 			versionFolder := md.Path
 			filename := getFileIDFromVersionFolder(versionFolder)
 
-			md, err = lm.vfs.GetMetadata(ctx, filename)
+			md, err = tm.vfs.GetMetadata(ctx, filename)
 			if err != nil {
 				// TOOD(labkode): log wan here
 				continue
@@ -361,14 +362,14 @@ func joinFileID(prefix, inode string) string {
 }
 
 /*
-func (lm *tagManager) getVersionFolderID(ctx context.Context, p string) (string, error) {
+func (tm *tagManager) getVersionFolderID(ctx context.Context, p string) (string, error) {
 	versionFolder := getVersionFolder(p)
-	md, err := lm.vfs.GetMetadata(ctx, versionFolder)
+	md, err := tm.vfs.GetMetadata(ctx, versionFolder)
 	if err != nil {
-		if err := lm.vfs.CreateDir(ctx, versionFolder); err != nil {
+		if err := tm.vfs.CreateDir(ctx, versionFolder); err != nil {
 			return "", err
 		}
-		md, err = lm.vfs.GetMetadata(ctx, versionFolder)
+		md, err = tm.vfs.GetMetadata(ctx, versionFolder)
 		if err != nil {
 			return "", err
 		}

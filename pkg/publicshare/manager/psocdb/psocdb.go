@@ -11,12 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cernbox/reva/pkg/logger"
 	"github.com/cernbox/reva/pkg/publicshare"
 	"github.com/cernbox/reva/pkg/storage"
 	"github.com/cernbox/reva/pkg/user"
 
 	"github.com/bluele/gcache"
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // import mysql driver
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -31,14 +32,16 @@ const tokenLength = 15
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 const versionPrefix = ".sys.v#."
 
-func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string, cacheSize, cacheEviction int) (publicshare.PublicShareManager, error) {
+// New returns a new public share manager.
+func New(dbUsername, dbPassword, dbHost string, dbPort int, dbName string, cacheSize, cacheEviction int, logOut io.Writer, logKey interface{}) (publicshare.Manager, error) {
 	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", dbUsername, dbPassword, dbHost, dbPort, dbName))
 	if err != nil {
 		return nil, err
 	}
 
 	cache := gcache.New(cacheSize).LFU().Build()
-	return &linkManager{db: db, cache: cache, cacheEviction: time.Second * time.Duration(cacheEviction)}, nil
+	logger := logger.New(logOut, "psocdb", logKey)
+	return &linkManager{db: db, cache: cache, cacheEviction: time.Second * time.Duration(cacheEviction), logger: logger}, nil
 }
 
 type linkManager struct {
@@ -46,7 +49,7 @@ type linkManager struct {
 	cache         gcache.Cache
 	cacheSize     int
 	cacheEviction time.Duration
-	logger        *logger
+	logger        *logger.Logger
 }
 
 // getFileIDParts returns the two parts of a fileID.
@@ -227,14 +230,14 @@ func (lm *linkManager) CreatePublicShare(ctx context.Context, u *user.User, md *
 		return nil, errors.Wrapf(err, "psocdb: error executing statement=%s with values=%+v", stmt, stmtValues)
 	}
 
-	lastId, err := result.LastInsertId()
+	lastID, err := result.LastInsertId()
 	if err != nil {
 		return nil, errors.Wrap(err, "psocdb: error retrieving last inserted id")
 	}
 
-	pb, err := lm.GetPublicShare(ctx, u, fmt.Sprintf("%d", lastId))
+	pb, err := lm.GetPublicShare(ctx, u, fmt.Sprintf("%d", lastID))
 	if err != nil {
-		return nil, errors.Wrapf(err, "psocdb: error getting public share after creating it with id=%s", lastId)
+		return nil, errors.Wrapf(err, "psocdb: error getting public share after creating it with id=%s", lastID)
 	}
 
 	return pb, nil
@@ -367,7 +370,7 @@ func (lm *linkManager) ListPublicShares(ctx context.Context, u *user.User, md *s
 		pb, err := lm.convertToPublicShare(ctx, dbShare)
 		if err != nil {
 			err = errors.Wrapf(err, "psocdb: error converting dbshare with id=%d to public share", dbShare.ID)
-			lm.logger.log(ctx, err.Error())
+			lm.logger.Log(ctx, err.Error())
 			continue
 		}
 		publicLinks = append(publicLinks, pb)
@@ -559,7 +562,7 @@ func (lm *linkManager) convertToPublicShare(ctx context.Context, dbShare *dbShar
 
 	fileID := joinFileID(dbShare.Prefix, dbShare.ItemSource)
 
-	var aclType publicshare.ACLType = publicshare.ACLTypeFile
+	var aclType = publicshare.ACLTypeFile
 	if dbShare.ItemType == "folder" {
 		aclType = publicshare.ACLTypeFile
 	}
@@ -680,21 +683,3 @@ type publicShareNotFoundError string
 
 func (e tokenAlreadyExistsError) Error() string  { return string(e) }
 func (e publicShareNotFoundError) Error() string { return string(e) }
-
-type logger struct {
-	out io.Writer
-	key interface{}
-}
-
-func (l *logger) log(ctx context.Context, msg string) {
-	trace := l.getTraceFromCtx(ctx)
-	fmt.Fprintf(l.out, "eosclient: trace=%s %s", trace, msg)
-}
-
-func (l *logger) getTraceFromCtx(ctx context.Context) string {
-	trace, _ := ctx.Value(l.key).(string)
-	if trace == "" {
-		trace = "notrace"
-	}
-	return trace
-}

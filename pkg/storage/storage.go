@@ -5,17 +5,25 @@ import (
 	"io"
 )
 
+// ACLMode represents the mode for the ACL (read, write, ...).
 type ACLMode uint32
+
+// ACLType represents the type of the ACL (user, group, ...).
 type ACLType string
 
 const (
-	ACLModeRead  = ACLMode(1)      // 1
+	// ACLModeRead specifies read permissions.
+	ACLModeRead = ACLMode(1) // 1
+	// ACLModeWrite specifies write-permissions.
 	ACLModeWrite = ACLMode(1 << 1) // 2
 
-	ACLTypeUser  ACLType = "user"
+	// ACLTypeUser specifies that the acl is set for an individual user.
+	ACLTypeUser ACLType = "user"
+	// ACLTypeGroup specifies that the acl is set for a group.
 	ACLTypeGroup ACLType = "group"
 )
 
+// Storage is the interface to implement access to the storage.
 type Storage interface {
 	CreateDir(ctx context.Context, fn string) error
 	Delete(ctx context.Context, fn string) error
@@ -37,6 +45,7 @@ type Storage interface {
 	GetQuota(ctx context.Context, fn string) (int, int, error)
 }
 
+// MD represents the metadata about a file/directory.
 type MD struct {
 	ID          string
 	Path        string
@@ -57,16 +66,16 @@ type MD struct {
 	EosInstance string
 
 	ShareTarget string
-	MigId       string
-	MigPath     string
 }
 
+// ACL represents an ACL to persist on the storage.
 type ACL struct {
 	Target string
 	Type   ACLType
 	Mode   ACLMode
 }
 
+// RecycleItem represents an entry in the recycle bin of the user.
 type RecycleItem struct {
 	RestorePath string
 	RestoreKey  string
@@ -75,56 +84,10 @@ type RecycleItem struct {
 	IsDir       bool
 }
 
+// Revision represents a version of the file in the past.
 type Revision struct {
 	RevKey string
 	Size   uint64
 	Mtime  uint64
 	IsDir  bool
-}
-
-// Mount contains the information about a mount.
-// Similar to "struct mntent" in /usr/include/mntent.h.
-// See also getent(8).
-// A Mount exposes two mount points, one fn based and another namespace based.
-// A fn-based mount point can be '/home', a namespaced mount-point can be 'home:1234'
-type Mount interface {
-	Storage
-	GetMountPoint() string
-	GetMountPointId() string
-	GetMountOptions() *MountOptions
-	GetStorage() Storage
-}
-
-type MountTable struct {
-	Mounts []*MountTableEntry `json:"mounts"`
-}
-
-type MountTableEntry struct {
-	MountPoint      string            `json:"mount_point"`
-	MountID         string            `json:"mount_id"`
-	MountOptions    *MountOptions     `json:"mount_options"`
-	StorageDriver   string            `json:"storage_driver"`
-	StorageOptions  interface{}       `json:"storage_options"`
-	StorageWrappers []*StorageWrapper `json:"storage_wrappers"`
-}
-
-type StorageWrapper struct {
-	Priority int         `json:"priority"`
-	Name     string      `json:"name"`
-	Options  interface{} `json:"options"`
-}
-
-// A VirtualStorage is similar to the
-// Linux VFS (Virtual File Switch).
-type VirtualStorage interface {
-	AddMount(ctx context.Context, mount Mount) error
-	RemoveMount(ctx context.Context, mountPoint string) error
-	ListMounts(ctx context.Context) ([]Mount, error)
-	GetMount(fn string) (Mount, error)
-	Storage
-}
-
-type MountOptions struct {
-	ReadOnly        bool `json:"read_only"`
-	SharingDisabled bool `json:"sharing_disabled"`
 }

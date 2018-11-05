@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"regexp"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/cernbox/reva/pkg/eosclient"
+	"github.com/cernbox/reva/pkg/logger"
 	"github.com/cernbox/reva/pkg/mime"
 	"github.com/cernbox/reva/pkg/storage"
 	"github.com/cernbox/reva/pkg/user"
@@ -25,31 +25,23 @@ type contextUserRequiredErr string
 func (err contextUserRequiredErr) Error() string   { return string(err) }
 func (err contextUserRequiredErr) IsUserRequired() {}
 
-func getUser(ctx context.Context) (*user.User, error) {
-	u, ok := user.ContextGetUser(ctx)
-	if !ok {
-		err := errors.Wrap(contextUserRequiredErr("user-required"), "storage_eos: error getting user from ctx")
-		return nil, err
-	}
-	return u, nil
-}
-
 type eosStorage struct {
 	c             *eosclient.Client
 	mountpoint    string
-	logger        *logger
+	logger        *logger.Logger
 	showHiddenSys bool
 }
 
+// Options are the configuration options to pass to the New function.
 type Options struct {
 	// Namespace for fn operations
 	Namespace string `json:"namespace"`
 
 	// Where to write the logs
-	LogOutput io.Writer
+	LogOut io.Writer
 
-	// TraceKey key to use for storing log traces
-	TraceKey interface{}
+	// LogKey key to use for storing log traces
+	LogKey interface{}
 
 	// Location of the eos binary.
 	// Default is /usr/bin/eos.
@@ -80,6 +72,15 @@ type Options struct {
 	ShowHiddenSysFiles bool `json:"show_hidden_sys_files"`
 }
 
+func getUser(ctx context.Context) (*user.User, error) {
+	u, ok := user.ContextGetUser(ctx)
+	if !ok {
+		err := errors.Wrap(contextUserRequiredErr("userrequired"), "storage_eos: error getting user from ctx")
+		return nil, err
+	}
+	return u, nil
+}
+
 func (opt *Options) init() {
 	opt.Namespace = path.Clean(opt.Namespace)
 	if !strings.HasPrefix(opt.Namespace, "/") {
@@ -105,16 +106,9 @@ func (opt *Options) init() {
 	if opt.CacheDirectory == "" {
 		opt.CacheDirectory = os.TempDir()
 	}
-
-	if opt.LogOutput == nil {
-		opt.LogOutput = ioutil.Discard
-	}
-
-	if opt.TraceKey == nil {
-		opt.TraceKey = "notrace"
-	}
 }
 
+// New returns a new implementation of the storage.Storage interface that connects to EOS.
 func New(opt *Options) (storage.Storage, error) {
 	opt.init()
 
@@ -123,8 +117,6 @@ func New(opt *Options) (storage.Storage, error) {
 		URL:            opt.MasterURL,
 		EosBinary:      opt.EosBinary,
 		CacheDirectory: opt.CacheDirectory,
-		LogOutput:      opt.LogOutput,
-		TraceKey:       opt.TraceKey,
 	}
 
 	eosClient, err := eosclient.New(eosClientOpts)
@@ -132,9 +124,11 @@ func New(opt *Options) (storage.Storage, error) {
 		return nil, errors.Wrap(err, "storage_eos: error creating eosclient")
 	}
 
+	logger := logger.New(opt.LogOut, "eos", opt.LogKey)
+
 	eosStorage := &eosStorage{
 		c:             eosClient,
-		logger:        &logger{key: opt.TraceKey, out: opt.LogOutput},
+		logger:        logger,
 		mountpoint:    opt.Namespace,
 		showHiddenSys: opt.ShowHiddenSysFiles,
 	}
@@ -145,7 +139,7 @@ func New(opt *Options) (storage.Storage, error) {
 func (fs *eosStorage) getInternalPath(ctx context.Context, fn string) string {
 	internalPath := path.Join(fs.mountpoint, fn)
 	msg := fmt.Sprintf("func=getInternalPath outter=%s inner=%s", fn, internalPath)
-	fs.logger.log(ctx, msg)
+	fs.logger.Log(ctx, msg)
 	return internalPath
 }
 
@@ -156,7 +150,7 @@ func (fs *eosStorage) removeNamespace(ctx context.Context, np string) string {
 	}
 
 	msg := fmt.Sprintf("func=removeNamespace inner=%s outter=%s", np, p)
-	fs.logger.log(ctx, msg)
+	fs.logger.Log(ctx, msg)
 	return p
 }
 
@@ -168,12 +162,12 @@ func (fs *eosStorage) GetPathByID(ctx context.Context, id string) (string, error
 
 	// parts[0] = 868317, parts[1] = photos, ...
 	parts := strings.Split(id, "/")
-	fileId, err := strconv.ParseUint(parts[0], 10, 64)
+	fileID, err := strconv.ParseUint(parts[0], 10, 64)
 	if err != nil {
 		return "", errors.Wrap(err, "storage_eos: error parsing fileid string")
 	}
 
-	eosFileInfo, err := fs.c.GetFileInfoByInode(ctx, u.Account, fileId)
+	eosFileInfo, err := fs.c.GetFileInfoByInode(ctx, u.Account, fileID)
 	if err != nil {
 		return "", errors.Wrap(err, "storage_eos: error getting file info by inode")
 	}
@@ -470,22 +464,4 @@ func (fs *eosStorage) convertToMD(ctx context.Context, eosFileInfo *eosclient.Fi
 	finfo.Mime = mime.Detect(finfo.IsDir, finfo.Path)
 	finfo.IsShareable = true
 	return finfo
-}
-
-type logger struct {
-	out io.Writer
-	key interface{}
-}
-
-func (l *logger) log(ctx context.Context, msg string) {
-	trace := l.getTraceFromCtx(ctx)
-	fmt.Fprintf(l.out, "eosclient: trace=%s %s", trace, msg)
-}
-
-func (l *logger) getTraceFromCtx(ctx context.Context) string {
-	trace, _ := ctx.Value(l.key).(string)
-	if trace == "" {
-		trace = "notrace"
-	}
-	return trace
 }

@@ -36,8 +36,8 @@ type (
 	// State represents the state of the share.
 	State string
 
-	// ShareManager is the interface that manipulates shares.
-	ShareManager interface {
+	// Manager is the interface that manipulates shares.
+	Manager interface {
 		// Create a new share in fn with the given acl.
 		Share(ctx context.Context, u *user.User, md *storage.MD, a *ACL) (*Share, error)
 

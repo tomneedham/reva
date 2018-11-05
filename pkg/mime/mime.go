@@ -13,10 +13,13 @@ func init() {
 	mimeMap = map[string]string{}
 }
 
+// RegisterMime is a package level function that registers
+// a mimetype with the given extension.
 func RegisterMime(ext, mime string) {
 	mimeMap[ext] = mime
 }
 
+// Detect returns the mimetype associated with the given filename.
 func Detect(isDir bool, fn string) string {
 	if isDir {
 		return defaultMimeDir

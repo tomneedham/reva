@@ -18,6 +18,7 @@ type mgr struct {
 	bindPassword string
 }
 
+// New returns an auth manager implementation that connects to a LDAP server to validate the user.
 func New(hostname string, port int, baseDN, filter, bindUsername, bindPassword string) auth.AuthManager {
 	return &mgr{
 		hostname:     hostname,
