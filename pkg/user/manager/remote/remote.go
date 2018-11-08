@@ -85,6 +85,10 @@ func (um *userManager) IsInGroup(ctx context.Context, username, group string) (b
 	return false, nil
 }
 
+func (um *userManager) GetUser(ctx context.Context, username string) (*user.User, error) {
+	return nil, errors.New("TODO")
+}
+
 func (um *userManager) GetUserGroups(ctx context.Context, username string) ([]string, error) {
 	groups := []string{}
 	client := &http.Client{Transport: um.tr}

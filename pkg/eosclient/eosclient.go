@@ -337,7 +337,7 @@ func (c *Client) List(ctx context.Context, username, path string) ([]*FileInfo, 
 	cmd := exec.CommandContext(ctx, "/usr/bin/eos", "-r", unixUser.Uid, unixUser.Gid, "find", "--fileinfo", "--maxdepth", "1", path)
 	stdout, _, err := c.execute(ctx, cmd)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "eosclient: error listing fn=%s", path)
 	}
 	return c.parseFind(path, stdout)
 }

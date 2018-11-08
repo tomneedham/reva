@@ -117,6 +117,8 @@ func New(opt *Options) (storage.Storage, error) {
 		URL:            opt.MasterURL,
 		EosBinary:      opt.EosBinary,
 		CacheDirectory: opt.CacheDirectory,
+		LogOutput:      opt.LogOut,
+		TraceKey:       opt.LogKey,
 	}
 
 	eosClient, err := eosclient.New(eosClientOpts)

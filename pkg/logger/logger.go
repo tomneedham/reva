@@ -32,13 +32,21 @@ func New(out io.Writer, module string, key interface{}) *Logger {
 // Log logs the message with the given context.
 func (l *Logger) Log(ctx context.Context, msg string) {
 	trace := l.getTraceFromCtx(ctx)
-	fmt.Fprintf(l.out, "%s: trace=%s %s", l.module, trace, msg)
+	fmt.Fprintf(l.out, "%s: trace=%s %s\n", l.module, trace, msg)
 }
 
 // Logf logs the message ala fmt.Printf().
 func (l *Logger) Logf(ctx context.Context, msg string, params ...interface{}) {
 	trace := l.getTraceFromCtx(ctx)
-	fmt.Fprintf(l.out, "%s: trace=%s %s", l.module, trace, fmt.Sprintf(msg, params...))
+	fmt.Fprintf(l.out, "%s: trace=%s %s\n", l.module, trace, fmt.Sprintf(msg, params...))
+}
+
+// Error is a convenience function to log an error.
+// Instead of calling l.Log(ctx, err.Error()) is possible to
+// use l.Error(ctx, err)
+func (l *Logger) Error(ctx context.Context, err error) {
+	trace := l.getTraceFromCtx(ctx)
+	fmt.Fprintf(l.out, "%s: trace=%s %s\n", l.module, trace, err.Error())
 }
 
 func (l *Logger) getTraceFromCtx(ctx context.Context) string {
