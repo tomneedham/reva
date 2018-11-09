@@ -54,18 +54,13 @@ type MD struct {
 	IsDir       bool
 	Etag        string
 	Checksum    string
-	DerefPath   string
-	IsReadOnly  bool
-	IsShareable bool
 	Mime        string
+	Permissions *Permissions
+	Sys         []byte
+}
 
-	Sys       []byte
-	TreeCount uint64
-
-	EosFile     string
-	EosInstance string
-
-	ShareTarget string
+type Permissions struct {
+	Read, Write, Share bool
 }
 
 // ACL represents an ACL to persist on the storage.
