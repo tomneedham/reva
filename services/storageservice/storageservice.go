@@ -2,21 +2,21 @@ package storageservice
 
 import (
 	//"bufio"
-	//"bytes"
-	//"fmt"
+	"bytes"
+	"fmt"
 	"io"
 	"os"
-	//"path/filepath"
-	//"sort"
-	//"strconv"
-	//"strings"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/cernbox/cernboxapis/gen/proto/go/cernbox/rpc"
 	"github.com/cernbox/cernboxapis/gen/proto/go/cernbox/storage/v1"
 	"github.com/cernbox/reva/pkg/logger"
 	"github.com/cernbox/reva/pkg/storage"
 
-	//"github.com/gofrs/uuid"
+	"github.com/gofrs/uuid"
 	//"github.com/grpc-ecosystem/go-grpc-middleware/tags/zap"
 	//"go.uber.org/zap"
 	"github.com/pkg/errors"
@@ -171,19 +171,267 @@ func (s *service) List(req *storagev1pb.ListRequest, stream storagev1pb.StorageS
 		s.logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storagev1pb.ListResponse{Status: status}
-		return res, nil
+		if err = stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming list response")
+		}
 	}
 
-	status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
-	res := &storagev1pb.ListResponse{Status: status}
 	for _, md := range mds {
-		res.Metadata := toMeta(md)
-		if err := stream.Send(meta); err != nil {
-			return errors.Wrap(err, "storageservice: error streaming metadata to client")
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		meta := toMeta(md)
+		res := &storagev1pb.ListResponse{
+			Status:   status,
+			Metadata: meta,
+		}
+
+		if err := stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming list response")
 		}
 	}
 
 	return nil
+}
+
+func (s *service) getSessionFolder(sessionID string) string {
+	return filepath.Join(s.tmpFolder, sessionID)
+}
+
+func (s *service) StartWriteSession(ctx context.Context, req *storagev1pb.StartWriteSessionRequest) (*storagev1pb.StartWriteSessionResponse, error) {
+	sessionID := uuid.Must(uuid.NewV4()).String()
+
+	// create temporary folder with sesion id to store
+	// future writes.
+	sessionFolder := s.getSessionFolder(sessionID)
+	if err := os.Mkdir(sessionFolder, 0755); err != nil {
+		err = errors.Wrap(err, "storageservice: error creating session folder")
+		s.logger.Error(ctx, err)
+
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.StartWriteSessionResponse{Status: status}
+		return res, nil
+	}
+
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.StartWriteSessionResponse{Status: status, SessionId: sessionID}
+	return res, nil
+}
+
+func (s *service) Write(stream storagev1pb.StorageService_WriteServer) error {
+	ctx := stream.Context()
+	numChunks := 0
+	var writtenBytes int64 = 0
+
+	for {
+		req, err := stream.Recv()
+
+		if err == io.EOF {
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+			res := &storagev1pb.WriteResponse{Status: status}
+			if err = stream.SendAndClose(res); err != nil {
+				err = errors.Wrap(err, "storageservice: error closing stream for write")
+				return err
+			}
+			return nil
+		}
+
+		if err != nil {
+			err = errors.Wrap(err, "storageservice: error receiving write request")
+			s.logger.Error(ctx, err)
+
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storagev1pb.WriteResponse{Status: status}
+			if err = stream.SendAndClose(res); err != nil {
+				err = errors.Wrap(err, "storageservice: error closing stream for write")
+				return err
+			}
+			return nil
+		}
+
+		sessionFolder := s.getSessionFolder(req.SessionId)
+		chunkFile := filepath.Join(sessionFolder, fmt.Sprintf("%d-%d", req.Offset, req.Length))
+
+		fd, err := os.OpenFile(chunkFile, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0600)
+		defer fd.Close()
+		if err != nil {
+			err = errors.Wrap(err, "storageservice: error creating chunk file")
+			s.logger.Error(ctx, err)
+
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storagev1pb.WriteResponse{Status: status}
+			if err = stream.SendAndClose(res); err != nil {
+				err = errors.Wrap(err, "storageservice: error closing stream for write")
+				return err
+			}
+			return nil
+		}
+
+		reader := bytes.NewReader(req.Data)
+		n, err := io.CopyN(fd, reader, int64(req.Length))
+		if err != nil {
+			err = errors.Wrap(err, "storageservice: error writing chunk file")
+			s.logger.Error(ctx, err)
+
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storagev1pb.WriteResponse{Status: status}
+			if err = stream.SendAndClose(res); err != nil {
+				err = errors.Wrap(err, "storageservice: error closing stream for write")
+				return err
+			}
+			return nil
+		}
+
+		numChunks++
+		writtenBytes += n
+		fd.Close()
+	}
+
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.WriteResponse{Status: status, WrittenBytes: uint64(writtenBytes), NumberChunks: uint64(numChunks)}
+	if err := stream.SendAndClose(res); err != nil {
+		err = errors.Wrap(err, "storageservice: error closing stream for write")
+		return err
+	}
+	return nil
+}
+
+func (s *service) FinishWriteSession(ctx context.Context, req *storagev1pb.FinishWriteSessionRequest) (*storagev1pb.FinishWriteSessionResponse, error) {
+	sessionFolder := s.getSessionFolder(req.SessionId)
+
+	fd, err := os.Open(sessionFolder)
+	defer fd.Close()
+	if os.IsNotExist(err) {
+		err = errors.Wrap(err, "storageservice: error opening session folder")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.FinishWriteSessionResponse{Status: status}
+		return res, nil
+	}
+
+	defer os.RemoveAll(sessionFolder) // remove txFolder once assembled file is returned
+
+	// list all the chunk files in the directory
+	names, err := fd.Readdirnames(0)
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error listing session folder")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		res := &storagev1pb.FinishWriteSessionResponse{Status: status}
+		return res, nil
+	}
+
+	// sort the chunks so they are in order when they need to be assembled.
+	names = s.getSortedChunkSlice(names)
+
+	//l.Debug("chunk sorted names", zap.String("names", fmt.Sprintf("%+v", names)))
+	//l.Info("number of chunks", zap.String("nchunks", fmt.Sprintf("%d", len(names))))
+
+	rand := uuid.Must(uuid.NewV4()).String()
+	assembledFilename := filepath.Join(sessionFolder, fmt.Sprintf("assembled-%s", rand))
+	//l.Info("", zap.String("assembledfilename", assembledFilename))
+
+	assembledFile, err := os.OpenFile(assembledFilename, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0600)
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error opening assembly file")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		res := &storagev1pb.FinishWriteSessionResponse{Status: status}
+		return res, nil
+	}
+
+	for _, n := range names {
+		//l.Debug("processing chunk", zap.String("name", n), zap.Int("int", i))
+		chunkFilename := filepath.Join(sessionFolder, n)
+		//l.Info(fmt.Sprintf("processing chunk %d", i), zap.String("chunk", chunkFilename))
+
+		chunkInfo, err := parseChunkFilename(filepath.Base(chunkFilename))
+		if err != nil {
+			err = errors.Wrap(err, "storageservice: error parsing chunk filename")
+			s.logger.Error(ctx, err)
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+			res := &storagev1pb.FinishWriteSessionResponse{Status: status}
+			return res, nil
+		}
+
+		chunk, err := os.Open(chunkFilename)
+		defer chunk.Close()
+		if err != nil {
+			return nil, err
+		}
+		n, err := io.CopyN(assembledFile, chunk, int64(chunkInfo.ClientLength))
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		if n != int64(chunkInfo.ClientLength) {
+			return nil, fmt.Errorf("chunk size in disk is different from chunk size sent from client. Read: %d Sent: %d", n, chunkInfo.ClientLength)
+		}
+		chunk.Close()
+	}
+	assembledFile.Close()
+
+	fd, err = os.Open(assembledFilename)
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error opening assembled file")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		res := &storagev1pb.FinishWriteSessionResponse{Status: status}
+		return res, nil
+	}
+
+	if err := s.storage.Upload(ctx, req.Filename, fd); err != nil {
+		err = errors.Wrap(err, "storageservice: error  uploading assembled file")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		res := &storagev1pb.FinishWriteSessionResponse{Status: status}
+		return res, nil
+	}
+
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.FinishWriteSessionResponse{Status: status}
+	return res, nil
+}
+
+func (s *service) getSortedChunkSlice(names []string) []string {
+	// sort names numerically by chunk
+	sort.Slice(names, func(i, j int) bool {
+		previous := names[i]
+		next := names[j]
+
+		previousOffset, err := strconv.ParseInt(strings.Split(previous, "-")[0], 10, 64)
+		if err != nil {
+			panic("chunk name cannot be casted to int: " + previous)
+		}
+		nextOffset, err := strconv.ParseInt(strings.Split(next, "-")[0], 10, 64)
+		if err != nil {
+			panic("chunk name cannot be casted to int: " + next)
+		}
+		return previousOffset < nextOffset
+	})
+	return names
+}
+
+type chunkInfo struct {
+	Offset       uint64
+	ClientLength uint64
+}
+
+func parseChunkFilename(fn string) (*chunkInfo, error) {
+	parts := strings.Split(fn, "-")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("chunk filename is wrong: %s", fn)
+	}
+
+	offset, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	clientLength, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &chunkInfo{Offset: offset, ClientLength: clientLength}, nil
+}
+
+func (s *service) Read(ctx context.Context, req *storagev1pb.ReadRequest, stream storagev1pb.StorageService_ReadServer) error {
 }
 
 /*
