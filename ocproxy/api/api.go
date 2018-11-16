@@ -1408,6 +1408,8 @@ type Options struct {
 
 	MailServer            string
 	MailServerFromAddress string
+
+	BaseUrl string
 }
 
 func (opt *Options) init() {
@@ -1544,6 +1546,8 @@ func New(opt *Options) (http.Handler, error) {
 
 		mailServer:            opt.MailServer,
 		mailServerFromAddress: opt.MailServerFromAddress,
+
+		baseUrl: opt.BaseUrl,
 	}
 
 	proxy.registerRoutes()
@@ -1593,6 +1597,8 @@ type proxy struct {
 
 	mailServer            string
 	mailServerFromAddress string
+
+	baseUrl string
 }
 
 // TODO(labkode): store this global var inside the proxy
@@ -6301,9 +6307,9 @@ func (p *proxy) mdToPropResponse(ctx context.Context, md *reva_api.Metadata, pro
 
 		// check for remote.php/webdav and remote.php/dav/files/gonzalhu/
 		if val := ctx.Value("user-dav-uri"); val != nil {
-			ref = path.Join("/remote.php/dav/files", user.AccountId, md.Path)
+			ref = path.Join(p.baseUrl, "/remote.php/dav/files", user.AccountId, md.Path)
 		} else {
-			ref = path.Join("/remote.php/webdav", md.Path)
+			ref = path.Join(p.baseUrl, "/remote.php/webdav", md.Path)
 		}
 
 		if md.IsDir {

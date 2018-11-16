@@ -49,6 +49,8 @@ func init() {
 	gc.Add("cache-size", 1000000, "cache size for md records")
 	gc.Add("cache-eviction", 86400, "cache eviction time in seconds for md records")
 
+	gc.Add("base-url", "", "Base url that should be appended to all links (in case cernbox in not in root path)")
+
 	gc.BindFlags()
 	gc.ReadConfig()
 }
@@ -79,6 +81,7 @@ func main() {
 		CacheEviction:         gc.GetInt("cache-eviction"),
 		MailServer:            gc.GetString("apps-mail-server"),
 		MailServerFromAddress: gc.GetString("apps-mail-server-from-address"),
+		BaseUrl:               gc.GetString("base-url"),
 	}
 
 	_, err := api.New(opts)
