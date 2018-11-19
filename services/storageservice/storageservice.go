@@ -17,8 +17,6 @@ import (
 	"github.com/cernbox/reva/pkg/storage"
 
 	"github.com/gofrs/uuid"
-	//"github.com/grpc-ecosystem/go-grpc-middleware/tags/zap"
-	//"go.uber.org/zap"
 	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 )
@@ -432,6 +430,368 @@ func parseChunkFilename(fn string) (*chunkInfo, error) {
 }
 
 func (s *service) Read(ctx context.Context, req *storagev1pb.ReadRequest, stream storagev1pb.StorageService_ReadServer) error {
+	fd, err := s.storage.Download(ctx, req.Filename)
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error downloading file")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.ReadResponse{Status: status}
+		if err = stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming read response")
+		}
+		return nil
+	}
+
+	// close fd when finish reading
+	// continue on failure
+	defer func() {
+		if err := fd.Close(); err != nil {
+			err = errors.Wrap(err, "storageservice: error closing fd after reading - leak")
+			s.logger.Error(ctx, err)
+		}
+	}()
+
+	// send data chunks of maximum 3 MiB
+	buffer := make([]byte, 1024*1024*3)
+	for {
+		n, err := fd.Read(buffer)
+		if n > 0 {
+			dc := &storagev1pb.DataChunk{Data: buffer[:n], Length: uint64(n)}
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+			res := &storagev1pb.ReadResponse{Status: status, DataChunk: dc}
+			if err = stream.Send(res); err != nil {
+				return errors.Wrap(err, "storageservice: error streaming read response")
+			}
+		}
+
+		// nothing more to send
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			err = errors.Wrap(err, "storageservice: error reading from fd")
+			s.logger.Error(ctx, err)
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storagev1pb.ReadResponse{Status: status}
+			if err = stream.Send(res); err != nil {
+				return errors.Wrap(err, "storageservice: error streaming read response")
+			}
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (s *service) ListVersions(req *storagev1pb.ListVersionsRequest, stream storagev1pb.StorageService_ListVersionsServer) error {
+	ctx := stream.Context()
+	revs, err := s.storage.ListRevisions(ctx, req.Filename)
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error listing revisions")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.ListVersionsResponse{Status: status}
+		if err = stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming list versions response")
+		}
+		return nil
+	}
+
+	for _, rev := range revs {
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		version := &storagev1pb.Version{
+			Key:   rev.RevKey,
+			IsDir: rev.IsDir,
+			Mtime: rev.Mtime,
+			Size:  rev.Size,
+		}
+		res := &storagev1pb.ListVersionsResponse{Status: status, Version: version}
+		if err := stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming list versions response")
+		}
+	}
+	return nil
+}
+
+func (s *service) ReadVersion(ctx context.Context, req *storagev1pb.ReadVersionRequest, stream storagev1pb.StorageService_ReadVersionServer) error {
+	fd, err := s.storage.DownloadRevision(ctx, req.Filename, req.VersionKey)
+	defer func() {
+		if err := fd.Close(); err != nil {
+			err = errors.Wrap(err, "storageservice: error closing fd for version file - leak")
+			s.logger.Error(ctx, err)
+			// continue
+		}
+	}()
+
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error downloading revision")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.ReadVersionResponse{Status: status}
+		if err = stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming read version response")
+		}
+		return nil
+	}
+
+	// send data chunks of maximum 1 MiB
+	buffer := make([]byte, 1024*1024*3)
+	for {
+		n, err := fd.Read(buffer)
+		if n > 0 {
+			dc := &storagev1pb.DataChunk{Data: buffer[:n], Length: uint64(n)}
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+			res := &storagev1pb.ReadVersionResponse{Status: status, DataChunk: dc}
+			if err = stream.Send(res); err != nil {
+				return errors.Wrap(err, "storageservice: error streaming read version response")
+			}
+		}
+
+		// nothing more to send
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			err = errors.Wrap(err, "storageservice: error reading from fd")
+			s.logger.Error(ctx, err)
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storagev1pb.ReadVersionResponse{Status: status}
+			if err = stream.Send(res); err != nil {
+				return errors.Wrap(err, "storageservice: error streaming read response")
+			}
+			return nil
+		}
+	}
+
+	return nil
+
+}
+
+func (s *service) RestoreVersion(ctx context.Context, req *storagev1pb.RestoreVersionRequest) (*storagev1pb.RestoreVersionResponse, error) {
+	if err := s.storage.RestoreRevision(ctx, req.Filename, req.VersionKey); err != nil {
+		err = errors.Wrap(err, "storageservice: error restoring version")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.RestoreVersionResponse{Status: status}
+		return res, nil
+	}
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+	res := &storagev1pb.RestoreVersionResponse{Status: status}
+	return res, nil
+}
+
+func (s *service) ListRecycle(req *storagev1pb.ListRecycleRequest, stream storagev1pb.StorageService_ListRecycleServer) error {
+	ctx := stream.Context()
+	filename := req.GetFilename()
+
+	items, err := s.storage.ListRecycle(ctx, filename)
+	if err != nil {
+		err := errors.Wrap(err, "storageservice: error listing recycle")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.ListRecycleResponse{Status: status}
+		if err = stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming list recycle response")
+		}
+	}
+
+	for _, item := range items {
+		recycleItem := &storagev1pb.RecycleItem{
+			Filename: item.RestorePath,
+			Key:      item.RestoreKey,
+			Size:     item.Size,
+			Deltime:  item.DelMtime,
+			IsDir:    item.IsDir,
+		}
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		res := &storagev1pb.ListRecycleResponse{
+			Status:      status,
+			RecycleItem: recycleItem,
+		}
+
+		if err := stream.Send(res); err != nil {
+			return errors.Wrap(err, "storageservice: error streaming list recycle response")
+		}
+	}
+
+	return nil
+}
+
+func (s *service) RestoreRecycleItem(ctx context.Context, req *storagev1pb.RestoreRecycleItemRequest) (*storagev1pb.RestoreRecycleItemResponse, error) {
+	if err := s.storage.RestoreRecycleItem(ctx, req.RestoreKey); err != nil {
+		err = errors.Wrap(err, "storageservice: error restoring recycle item")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.RestoreRecycleItemResponse{Status: status}
+		return res, nil
+	}
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.RestoreRecycleItemResponse{Status: status}
+	return res, nil
+}
+
+func (s *service) PurgeRecycle(ctx context.Context, req *storagev1pb.PurgeRecycleRequest) (*storagev1pb.PurgeRecycleResponse, error) {
+	if err := s.storage.EmptyRecycle(ctx, req.Filename); err != nil {
+		err = errors.Wrap(err, "storageservice: error purging recycle")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.PurgeRecycleResponse{Status: status}
+		return res, nil
+	}
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.PurgeRecycleResponse{Status: status}
+	return res, nil
+}
+
+func (s *service) SetACL(ctx context.Context, req *storagev1pb.SetACLRequest) (*storagev1pb.SetACLResponse, error) {
+	filename := req.Filename
+	aclTarget := req.Acl.Target
+	aclMode := s.getPermissions(req.Acl.Mode)
+	aclType := s.getTargetType(req.Acl.Type)
+
+	// check mode is valid
+	if aclMode == storage.ACLModeInvalid {
+		s.logger.Log(ctx, "acl mode is invalid")
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INVALID_ARGUMENT, Message: "acl mode is invalid"}
+		res := &storagev1pb.SetACLResponse{Status: status}
+		return res, nil
+	}
+
+	// check targetType is valid
+	if aclType == storage.ACLTypeInvalid {
+		s.logger.Log(ctx, "acl  type is invalid")
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INVALID_ARGUMENT, Message: "acl type is invalid"}
+		res := &storagev1pb.SetACLResponse{Status: status}
+		return res, nil
+	}
+
+	acl := &storage.ACL{
+		Target: aclTarget,
+		Mode:   aclMode,
+		Type:   aclType,
+	}
+
+	err := s.storage.SetACL(ctx, filename, acl)
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error setting acl")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.SetACLResponse{Status: status}
+		return res, nil
+	}
+
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.SetACLResponse{Status: status}
+	return res, nil
+}
+
+func (s *service) getTargetType(t storagev1pb.ACLType) storage.ACLType {
+	switch t {
+	case storagev1pb.ACLType_ACL_TYPE_USER:
+		return storage.ACLTypeUser
+	case storagev1pb.ACLType_ACL_TYPE_GROUP:
+		return storage.ACLTypeGroup
+	default:
+		return storage.ACLTypeInvalid
+	}
+}
+
+func (s *service) getPermissions(mode storagev1pb.ACLMode) storage.ACLMode {
+	switch mode {
+	case storagev1pb.ACLMode_ACL_MODE_READONLY:
+		return storage.ACLModeReadOnly
+	case storagev1pb.ACLMode_ACL_MODE_READWRITE:
+		return storage.ACLModeReadWrite
+	default:
+		return storage.ACLModeInvalid
+	}
+}
+
+func (s *service) UpdateACL(ctx context.Context, req *storagev1pb.UpdateACLRequest) (*storagev1pb.UpdateACLResponse, error) {
+	filename := req.Filename
+	target := req.Acl.Target
+	mode := s.getPermissions(req.Acl.Mode)
+	targetType := s.getTargetType(req.Acl.Type)
+
+	// check mode is valid
+	if mode == storage.ACLModeInvalid {
+		s.logger.Log(ctx, "acl mode is invalid")
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INVALID_ARGUMENT, Message: "acl mode is invalid"}
+		res := &storagev1pb.UpdateACLResponse{Status: status}
+		return res, nil
+	}
+
+	// check targetType is valid
+	if targetType == storage.ACLTypeInvalid {
+		s.logger.Log(ctx, "acl  type is invalid")
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INVALID_ARGUMENT, Message: "acl type is invalid"}
+		res := &storagev1pb.UpdateACLResponse{Status: status}
+		return res, nil
+	}
+
+	acl := &storage.ACL{
+		Target: target,
+		Mode:   mode,
+		Type:   targetType,
+	}
+
+	if err := s.storage.UpdateACL(ctx, filename, acl); err != nil {
+		err = errors.Wrap(err, "storageservice: error updating acl")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.UpdateACLResponse{Status: status}
+		return res, nil
+	}
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.UpdateACLResponse{Status: status}
+	return res, nil
+}
+
+func (s *service) UnsetACL(ctx context.Context, req *storagev1pb.UnsetACLRequest) (*storagev1pb.UnsetACLResponse, error) {
+	filename := req.Filename
+	aclTarget := req.Acl.Target
+	aclType := s.getTargetType(req.Acl.Type)
+
+	// check targetType is valid
+	if aclType == storage.ACLTypeInvalid {
+		s.logger.Log(ctx, "acl  type is invalid")
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INVALID_ARGUMENT, Message: "acl type is invalid"}
+		res := &storagev1pb.UnsetACLResponse{Status: status}
+		return res, nil
+	}
+
+	acl := &storage.ACL{
+		Target: aclTarget,
+		Type:   aclType,
+	}
+
+	if err := s.storage.UnsetACL(ctx, filename, acl); err != nil {
+		err = errors.Wrap(err, "storageservice: error unsetting acl")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.UnsetACLResponse{Status: status}
+		return res, nil
+	}
+
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.UnsetACLResponse{Status: status}
+	return res, nil
+}
+
+func (s *service) GetQuota(ctx context.Context, req *storagev1pb.GetQuotaRequest) (*storagev1pb.GetQuotaResponse, error) {
+	total, used, err := s.storage.GetQuota(ctx, req.Filename)
+	if err != nil {
+		err = errors.Wrap(err, "storageservice: error getting quota")
+		s.logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storagev1pb.GetQuotaResponse{Status: status}
+		return res, nil
+	}
+	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+	res := &storagev1pb.GetQuotaResponse{Status: status, TotalBytes: uint64(total), UsedBytes: uint64(used)}
+	return res, nil
 }
 
 /*

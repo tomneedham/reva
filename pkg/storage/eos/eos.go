@@ -109,7 +109,7 @@ func (opt *Options) init() {
 }
 
 // New returns a new implementation of the storage.Storage interface that connects to EOS.
-func New(opt *Options) (storage.Storage, error) {
+func New(opt *Options) storage.Storage {
 	opt.init()
 
 	eosClientOpts := &eosclient.Options{
@@ -121,11 +121,7 @@ func New(opt *Options) (storage.Storage, error) {
 		TraceKey:       opt.LogKey,
 	}
 
-	eosClient, err := eosclient.New(eosClientOpts)
-	if err != nil {
-		return nil, errors.Wrap(err, "storage_eos: error creating eosclient")
-	}
-
+	eosClient := eosclient.New(eosClientOpts)
 	logger := logger.New(opt.LogOut, "eos", opt.LogKey)
 
 	eosStorage := &eosStorage{
@@ -135,7 +131,7 @@ func New(opt *Options) (storage.Storage, error) {
 		showHiddenSys: opt.ShowHiddenSysFiles,
 	}
 
-	return eosStorage, nil
+	return eosStorage
 }
 
 func (fs *eosStorage) getInternalPath(ctx context.Context, fn string) string {
@@ -169,7 +165,7 @@ func (fs *eosStorage) GetPathByID(ctx context.Context, id string) (string, error
 		return "", errors.Wrap(err, "storage_eos: error parsing fileid string")
 	}
 
-	eosFileInfo, err := fs.c.GetFileInfoByInode(ctx, u.Account, fileID)
+	eosFileInfo, err := fs.c.GetFileInfoByInode(ctx, u.Username, fileID)
 	if err != nil {
 		return "", errors.Wrap(err, "storage_eos: error getting file info by inode")
 	}
@@ -188,7 +184,7 @@ func (fs *eosStorage) SetACL(ctx context.Context, fn string, a *storage.ACL) err
 
 	eosACL := fs.getEosACL(a)
 
-	err = fs.c.AddACL(ctx, u.Account, fn, eosACL)
+	err = fs.c.AddACL(ctx, u.Username, fn, eosACL)
 	if err != nil {
 		return errors.Wrap(err, "storage_eos: error adding acl")
 	}
@@ -196,28 +192,32 @@ func (fs *eosStorage) SetACL(ctx context.Context, fn string, a *storage.ACL) err
 	return nil
 }
 
-func getEosACLType(acl *storage.ACL) eosclient.ACLType {
-	switch acl.Type {
+func getEosACLType(aclType storage.ACLType) string {
+	switch aclType {
 	case storage.ACLTypeUser:
-		return eosclient.ACLTypeUser
+		return "u"
 	case storage.ACLTypeGroup:
-		return eosclient.ACLTypeGroup
+		return "g"
+	default:
+		panic(aclType)
 	}
-
-	panic(acl)
 }
 
-func getEosACLPerm(a *storage.ACL) eosclient.ACLMode {
-	if (a.Mode & storage.ACLModeWrite) == 1 {
-		return eosclient.ACLModeReadWrite
+func getEosACLPerm(mode storage.ACLMode) string {
+	switch mode {
+	case storage.ACLModeReadOnly:
+		return "rx"
+	case storage.ACLModeReadWrite:
+		return "rwx!d"
+	default:
+		panic(mode)
 	}
-	return eosclient.ACLModeRead
 }
 
 func (fs *eosStorage) getEosACL(a *storage.ACL) *eosclient.ACL {
 	eosACL := &eosclient.ACL{Target: a.Target}
-	eosACL.Mode = getEosACLPerm(a)
-	eosACL.Type = getEosACLType(a)
+	eosACL.Mode = getEosACLPerm(a.Mode)
+	eosACL.Type = getEosACLType(a.Type)
 	return eosACL
 }
 
@@ -227,11 +227,11 @@ func (fs *eosStorage) UnsetACL(ctx context.Context, fn string, a *storage.ACL) e
 		return errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 
-	eosACLType := getEosACLType(a)
+	eosACLType := getEosACLType(a.Type)
 
 	fn = fs.getInternalPath(ctx, fn)
 
-	err = fs.c.RemoveACL(ctx, u.Account, fn, eosACLType, a.Target)
+	err = fs.c.RemoveACL(ctx, u.Username, fn, eosACLType, a.Target)
 	if err != nil {
 		return errors.Wrap(err, "storage_eos: error removing acl")
 	}
@@ -247,11 +247,77 @@ func (fs *eosStorage) UpdateACL(ctx context.Context, fn string, a *storage.ACL) 
 	eosACL := fs.getEosACL(a)
 
 	fn = fs.getInternalPath(ctx, fn)
-	err = fs.c.AddACL(ctx, u.Account, fn, eosACL)
+	err = fs.c.AddACL(ctx, u.Username, fn, eosACL)
 	if err != nil {
 		return errors.Wrap(err, "storage_eos: error updating acl")
 	}
 	return nil
+}
+
+func (fs *eosStorage) GetACL(ctx context.Context, fn string, aclType storage.ACLType, target string) (*storage.ACL, error) {
+	u, err := getUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	fn = fs.getInternalPath(ctx, fn)
+	eosACL, err := fs.c.GetACL(ctx, u.Username, fn, getEosACLType(aclType), target)
+	if err != nil {
+		return nil, err
+	}
+
+	acl := &storage.ACL{
+		Target: eosACL.Target,
+		Mode:   fs.getACLMode(eosACL.Mode),
+		Type:   fs.getACLType(eosACL.Type),
+	}
+	return acl, nil
+}
+
+func (fs *eosStorage) ListACLs(ctx context.Context, fn string) ([]*storage.ACL, error) {
+	u, err := getUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	fn = fs.getInternalPath(ctx, fn)
+	eosACLs, err := fs.c.ListACLs(ctx, u.Username, fn)
+	if err != nil {
+		return nil, err
+	}
+
+	acls := []*storage.ACL{}
+	for _, a := range eosACLs {
+		acl := &storage.ACL{
+			Target: a.Target,
+			Mode:   fs.getACLMode(a.Mode),
+			Type:   fs.getACLType(a.Type),
+		}
+		acls = append(acls, acl)
+	}
+
+	return acls, nil
+}
+
+func (fs *eosStorage) getACLType(aclType string) storage.ACLType {
+	switch aclType {
+	case "u":
+		return storage.ACLTypeUser
+	case "g":
+		return storage.ACLTypeGroup
+	default:
+		return storage.ACLTypeInvalid
+	}
+}
+func (fs *eosStorage) getACLMode(mode string) storage.ACLMode {
+	switch mode {
+	case "rx":
+		return storage.ACLModeReadOnly
+	case "rwx!d":
+		return storage.ACLModeReadWrite
+	default:
+		return storage.ACLModeInvalid
+	}
 }
 
 func (fs *eosStorage) GetMD(ctx context.Context, fn string) (*storage.MD, error) {
@@ -261,7 +327,7 @@ func (fs *eosStorage) GetMD(ctx context.Context, fn string) (*storage.MD, error)
 	}
 
 	fn = fs.getInternalPath(ctx, fn)
-	eosFileInfo, err := fs.c.GetFileInfoByPath(ctx, u.Account, fn)
+	eosFileInfo, err := fs.c.GetFileInfoByPath(ctx, u.Username, fn)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +342,7 @@ func (fs *eosStorage) ListFolder(ctx context.Context, fn string) ([]*storage.MD,
 	}
 
 	fn = fs.getInternalPath(ctx, fn)
-	eosFileInfos, err := fs.c.List(ctx, u.Account, fn)
+	eosFileInfos, err := fs.c.List(ctx, u.Username, fn)
 	if err != nil {
 		return nil, errors.Wrap(err, "storage_eos: errong listing")
 	}
@@ -302,7 +368,7 @@ func (fs *eosStorage) GetQuota(ctx context.Context, fn string) (int, int, error)
 		return 0, 0, errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	return fs.c.GetQuota(ctx, u.Account, fn)
+	return fs.c.GetQuota(ctx, u.Username, fn)
 }
 
 func (fs *eosStorage) CreateDir(ctx context.Context, fn string) error {
@@ -311,7 +377,7 @@ func (fs *eosStorage) CreateDir(ctx context.Context, fn string) error {
 		return errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	return fs.c.CreateDir(ctx, u.Account, fn)
+	return fs.c.CreateDir(ctx, u.Username, fn)
 }
 
 func (fs *eosStorage) Delete(ctx context.Context, fn string) error {
@@ -320,7 +386,7 @@ func (fs *eosStorage) Delete(ctx context.Context, fn string) error {
 		return errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	return fs.c.Remove(ctx, u.Account, fn)
+	return fs.c.Remove(ctx, u.Username, fn)
 }
 
 func (fs *eosStorage) Move(ctx context.Context, oldPath, newPath string) error {
@@ -330,7 +396,7 @@ func (fs *eosStorage) Move(ctx context.Context, oldPath, newPath string) error {
 	}
 	oldPath = fs.getInternalPath(ctx, oldPath)
 	newPath = fs.getInternalPath(ctx, newPath)
-	return fs.c.Rename(ctx, u.Account, oldPath, newPath)
+	return fs.c.Rename(ctx, u.Username, oldPath, newPath)
 }
 
 func (fs *eosStorage) Download(ctx context.Context, fn string) (io.ReadCloser, error) {
@@ -339,7 +405,7 @@ func (fs *eosStorage) Download(ctx context.Context, fn string) (io.ReadCloser, e
 		return nil, errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	return fs.c.Read(ctx, u.Account, fn)
+	return fs.c.Read(ctx, u.Username, fn)
 }
 
 func (fs *eosStorage) Upload(ctx context.Context, fn string, r io.ReadCloser) error {
@@ -348,7 +414,7 @@ func (fs *eosStorage) Upload(ctx context.Context, fn string, r io.ReadCloser) er
 		return errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	return fs.c.Write(ctx, u.Account, fn, r)
+	return fs.c.Write(ctx, u.Username, fn, r)
 }
 
 func (fs *eosStorage) ListRevisions(ctx context.Context, fn string) ([]*storage.Revision, error) {
@@ -357,7 +423,7 @@ func (fs *eosStorage) ListRevisions(ctx context.Context, fn string) ([]*storage.
 		return nil, errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	eosRevisions, err := fs.c.ListVersions(ctx, u.Account, fn)
+	eosRevisions, err := fs.c.ListVersions(ctx, u.Username, fn)
 	if err != nil {
 		return nil, errors.Wrap(err, "storage_eos: error listing versions")
 	}
@@ -375,7 +441,7 @@ func (fs *eosStorage) DownloadRevision(ctx context.Context, fn, revisionKey stri
 		return nil, errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	return fs.c.ReadVersion(ctx, u.Account, fn, revisionKey)
+	return fs.c.ReadVersion(ctx, u.Username, fn, revisionKey)
 }
 
 func (fs *eosStorage) RestoreRevision(ctx context.Context, fn, revisionKey string) error {
@@ -384,7 +450,7 @@ func (fs *eosStorage) RestoreRevision(ctx context.Context, fn, revisionKey strin
 		return errors.Wrap(err, "storage_eos: no user in ctx")
 	}
 	fn = fs.getInternalPath(ctx, fn)
-	return fs.c.RollbackToVersion(ctx, u.Account, fn, revisionKey)
+	return fs.c.RollbackToVersion(ctx, u.Username, fn, revisionKey)
 }
 
 func (fs *eosStorage) EmptyRecycle(ctx context.Context, fn string) error {
@@ -392,7 +458,7 @@ func (fs *eosStorage) EmptyRecycle(ctx context.Context, fn string) error {
 	if err != nil {
 		return errors.Wrap(err, "storage_eos: no user in ctx")
 	}
-	return fs.c.PurgeDeletedEntries(ctx, u.Account)
+	return fs.c.PurgeDeletedEntries(ctx, u.Username)
 }
 
 func (fs *eosStorage) ListRecycle(ctx context.Context, fn string) ([]*storage.RecycleItem, error) {
@@ -400,7 +466,7 @@ func (fs *eosStorage) ListRecycle(ctx context.Context, fn string) ([]*storage.Re
 	if err != nil {
 		return nil, errors.Wrap(err, "storage_eos: no user in ctx")
 	}
-	eosDeletedEntries, err := fs.c.ListDeletedEntries(ctx, u.Account)
+	eosDeletedEntries, err := fs.c.ListDeletedEntries(ctx, u.Username)
 	if err != nil {
 		return nil, errors.Wrap(err, "storage_eos: error listing deleted entries")
 	}
@@ -424,7 +490,7 @@ func (fs *eosStorage) RestoreRecycleItem(ctx context.Context, key string) error 
 	if err != nil {
 		return errors.Wrap(err, "storage_eos: no user in ctx")
 	}
-	return fs.c.RestoreDeletedEntry(ctx, u.Account, key)
+	return fs.c.RestoreDeletedEntry(ctx, u.Username, key)
 }
 
 func (fs *eosStorage) convertToRecycleItem(ctx context.Context, eosDeletedItem *eosclient.DeletedEntry) *storage.RecycleItem {
@@ -455,15 +521,30 @@ func (fs *eosStorage) convertToMD(ctx context.Context, eosFileInfo *eosclient.Fi
 	finfo.Mtime = eosFileInfo.MTime
 	finfo.IsDir = eosFileInfo.IsDir
 	finfo.Etag = eosFileInfo.ETag
-	if finfo.IsDir {
-		finfo.TreeCount = eosFileInfo.TreeCount
-		finfo.Size = eosFileInfo.TreeSize
-	} else {
-		finfo.Size = eosFileInfo.Size
-	}
-	finfo.EosFile = eosFileInfo.File
-	finfo.EosInstance = eosFileInfo.Instance
 	finfo.Mime = mime.Detect(finfo.IsDir, finfo.Path)
-	finfo.IsShareable = true
+	finfo.Sys = fs.getEosMetadata(eosFileInfo)
+	finfo.Permissions = &storage.Permissions{Read: true, Write: true, Share: true}
+	finfo.Size = eosFileInfo.Size
 	return finfo
+}
+
+type eosSysMetadata struct {
+	TreeSize  uint64
+	TreeCount uint64
+	File      string
+	Instance  string
+}
+
+func (fs *eosStorage) getEosMetadata(finfo *eosclient.FileInfo) map[string]interface{} {
+	sys := &eosSysMetadata{
+		File:     finfo.File,
+		Instance: finfo.Instance,
+	}
+
+	if finfo.IsDir {
+		sys.TreeCount = finfo.TreeCount
+		sys.TreeSize = finfo.TreeSize
+	}
+
+	return map[string]interface{}{"eos": sys}
 }

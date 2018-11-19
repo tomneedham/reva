@@ -9,22 +9,26 @@ import (
 type ACLMode uint32
 
 // ACLType represents the type of the ACL (user, group, ...).
-type ACLType string
+type ACLType uint32
 
 const (
-	// ACLModeRead specifies read permissions.
-	ACLModeRead = ACLMode(1) // 1
+	// ACLModeInvalid specifies an invalid permission.
+	ACLModeInvalid = ACLMode(0) // default is invalid.
+	// ACLModeReadOnly specifies read permissions.
+	ACLModeReadOnly = ACLMode(1) // 1
 	// ACLModeWrite specifies write-permissions.
-	ACLModeWrite = ACLMode(1 << 1) // 2
+	ACLModeReadWrite = ACLMode(2) // 2
 
+	// ACLTypeInvalid specifies that the acl is invalid
+	ACLTypeInvalid ACLType = ACLType(0)
 	// ACLTypeUser specifies that the acl is set for an individual user.
-	ACLTypeUser ACLType = "user"
+	ACLTypeUser ACLType = ACLType(1)
 	// ACLTypeGroup specifies that the acl is set for a group.
-	ACLTypeGroup ACLType = "group"
+	ACLTypeGroup ACLType = ACLType(2)
 )
 
-// Storage is the interface to implement access to the storage.
-type Storage interface {
+// FS is the interface to implement access to the storage.
+type FS interface {
 	CreateDir(ctx context.Context, fn string) error
 	Delete(ctx context.Context, fn string) error
 	Move(ctx context.Context, old, new string) error
@@ -42,6 +46,8 @@ type Storage interface {
 	SetACL(ctx context.Context, fn string, a *ACL) error
 	UnsetACL(ctx context.Context, fn string, a *ACL) error
 	UpdateACL(ctx context.Context, fn string, a *ACL) error
+	ListACLs(ctx context.Context, fn string) ([]*ACL, error)
+	GetACL(ctx context.Context, fn string, aclType ACLType, target string) (*ACL, error)
 	GetQuota(ctx context.Context, fn string) (int, int, error)
 }
 
@@ -56,7 +62,7 @@ type MD struct {
 	Checksum    string
 	Mime        string
 	Permissions *Permissions
-	Sys         []byte
+	Sys         map[string]interface{}
 }
 
 type Permissions struct {
@@ -85,4 +91,25 @@ type Revision struct {
 	Size   uint64
 	Mtime  uint64
 	IsDir  bool
+}
+
+// FSTable contains descriptive information about the various file systems.
+// It follows the same logic as unix fstab.
+type FSTable interface {
+	AddMount(m Mount) error
+	ListMounts() ([]Mount, error)
+	RemoveMount(m Mount) error
+}
+
+// Mount contains the information on how to mount a filesystem.
+type Mount interface {
+	GetFSName() string
+	GetDir() string
+	GetFS() FS
+	GetOptions() *MountOptions
+}
+
+// MountOptions are the options for the mount.
+type MountOptions struct {
+	ForceReadOnly bool
 }

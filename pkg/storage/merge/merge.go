@@ -19,10 +19,27 @@ type ms struct {
 	mounts []*mount
 }
 
+type Options struct {
+	LogOut      io.Writer
+	LogTraceKey string
+
+	Mounts []*MountConfig
+}
+
+type MountConfig struct {
+	ID, Path string
+	Options  *MountOptions
+	Storage  storage.Storage
+}
+
+type MountOptions struct {
+	ForceReadOnly bool
+}
+
 // New returns an implementation of the storage.Storage interface that merges one or more storages.
-func New(logOut io.Writer, logKey interface{}) storage.Storage {
+func New(opt *Options) storage.Storage {
 	ms := &ms{
-		logger: logger.New(logOut, "ms", logKey),
+		logger: logger.New(opt.LogOut, "ms", opt.LogTraceKey),
 		mounts: []*mount{},
 	}
 

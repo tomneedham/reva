@@ -69,6 +69,14 @@ func (fs *localStorage) SetACL(ctx context.Context, path string, a *storage.ACL)
 	return notSupportedError("op not supported")
 }
 
+func (fs *localStorage) GetACL(ctx context.Context, path string, aclType storage.ACLType, target string) (*storage.ACL, error) {
+	return nil, notSupportedError("op not supported")
+}
+
+func (fs *localStorage) ListACLs(ctx context.Context, path string) ([]*storage.ACL, error) {
+	return nil, notSupportedError("op not supported")
+}
+
 func (fs *localStorage) UnsetACL(ctx context.Context, path string, a *storage.ACL) error {
 	return notSupportedError("op not supported")
 }
@@ -82,7 +90,7 @@ func (fs *localStorage) GetQuota(ctx context.Context, fn string) (int, int, erro
 
 func (fs *localStorage) CreateDir(ctx context.Context, fn string) error {
 	fn = fs.addNamespace(fn)
-	return os.Mkdir(fn, 0644)
+	return os.Mkdir(fn, 0755)
 }
 
 func (fs *localStorage) Delete(ctx context.Context, fn string) error {
