@@ -108,8 +108,8 @@ func (opt *Options) init() {
 	}
 }
 
-// New returns a new implementation of the storage.Storage interface that connects to EOS.
-func New(opt *Options) storage.Storage {
+// New returns a new implementation of the storage.FS interface that connects to EOS.
+func New(opt *Options) storage.FS {
 	opt.init()
 
 	eosClientOpts := &eosclient.Options{
@@ -485,7 +485,7 @@ func (fs *eosStorage) ListRecycle(ctx context.Context, fn string) ([]*storage.Re
 	return recycleEntries, nil
 }
 
-func (fs *eosStorage) RestoreRecycleItem(ctx context.Context, key string) error {
+func (fs *eosStorage) RestoreRecycleItem(ctx context.Context, fn, key string) error {
 	u, err := getUser(ctx)
 	if err != nil {
 		return errors.Wrap(err, "storage_eos: no user in ctx")

@@ -2,6 +2,7 @@ package fstable
 
 import (
 	"github.com/cernbox/reva/pkg/storage"
+	"strings"
 )
 
 type fsTable struct {
@@ -29,3 +30,16 @@ func (fs *fsTable) ListMounts() ([]storage.Mount, error) {
 	}
 	return mounts, nil
 }
+
+func (fs *fsTable) GetMount(dir string) (storage.Mount, error) {
+	for k, v := range fs.mounts {
+		if strings.HasPrefix(dir, k) {
+			return v, nil
+		}
+	}
+	return nil, notFoundError(dir)
+}
+
+type notFoundError string
+
+func (e notFoundError) Error() string { return string(e) }

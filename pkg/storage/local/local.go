@@ -25,9 +25,9 @@ func (opt *Options) init() {
 	}
 }
 
-// New returns an implementation to of the storage.Storage interface that talk to
+// New returns an implementation to of the storage.FS interface that talk to
 // a local filesystem.
-func New(opt *Options) storage.Storage {
+func New(opt *Options) storage.FS {
 	opt.init()
 	s := new(localStorage)
 	s.fnspace = opt.Namespace
@@ -192,7 +192,7 @@ func (fs *localStorage) ListRecycle(ctx context.Context, path string) ([]*storag
 	return nil, notSupportedError("op not supported")
 }
 
-func (fs *localStorage) RestoreRecycleItem(ctx context.Context, restoreKey string) error {
+func (fs *localStorage) RestoreRecycleItem(ctx context.Context, fn, restoreKey string) error {
 	return notSupportedError("op not supported")
 }
 

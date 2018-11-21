@@ -37,7 +37,7 @@ func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.Generat
 
 	err := s.authmgr.Authenticate(ctx, username, password)
 	if err != nil {
-		err = errors.Wrap(err, "error authenticating user")
+		err = errors.Wrap(err, "authservice: error authenticating user")
 		s.logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
 		res := &authv1pb.GenerateAccessTokenResponse{Status: status}
@@ -46,7 +46,7 @@ func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.Generat
 
 	user, err := s.usermgr.GetUser(ctx, username)
 	if err != nil {
-		err = errors.Wrap(err, "error getting user information")
+		err = errors.Wrap(err, "authservice: error getting user information")
 		s.logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
 		res := &authv1pb.GenerateAccessTokenResponse{Status: status}
@@ -62,7 +62,7 @@ func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.Generat
 
 	accessToken, err := s.tokenmgr.ForgeToken(ctx, claims)
 	if err != nil {
-		err = errors.Wrap(err, "error creating access token")
+		err = errors.Wrap(err, "authservice: error creating access token")
 		s.logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
 		res := &authv1pb.GenerateAccessTokenResponse{Status: status}

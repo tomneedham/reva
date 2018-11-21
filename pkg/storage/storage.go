@@ -40,7 +40,7 @@ type FS interface {
 	DownloadRevision(ctx context.Context, fn, key string) (io.ReadCloser, error)
 	RestoreRevision(ctx context.Context, fn, key string) error
 	ListRecycle(ctx context.Context, fn string) ([]*RecycleItem, error)
-	RestoreRecycleItem(ctx context.Context, key string) error
+	RestoreRecycleItem(ctx context.Context, fn, key string) error
 	EmptyRecycle(ctx context.Context, fn string) error
 	GetPathByID(ctx context.Context, id string) (string, error)
 	SetACL(ctx context.Context, fn string, a *ACL) error
@@ -99,6 +99,7 @@ type FSTable interface {
 	AddMount(m Mount) error
 	ListMounts() ([]Mount, error)
 	RemoveMount(m Mount) error
+	GetMount(dir string) (Mount, error)
 }
 
 // Mount contains the information on how to mount a filesystem.

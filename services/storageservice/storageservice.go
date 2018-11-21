@@ -22,7 +22,7 @@ import (
 )
 
 type service struct {
-	storage   storage.Storage
+	storage   storage.FS
 	tmpFolder string
 	logger    *logger.Logger
 }
@@ -50,7 +50,7 @@ type service struct {
 //  rpc UnsetACL(UnsetACLRequest) returns (UnsetACLResponse);
 //  rpc GetQuota(GetQuotaRequest) returns (GetQuotaResponse);
 //}
-func New(s storage.Storage, tmpFolder string, logOut io.Writer, logKey interface{}) interface{} {
+func New(s storage.FS, tmpFolder string, logOut io.Writer, logKey interface{}) interface{} {
 	logger := logger.New(logOut, "storageservice", logKey)
 
 	// use os temporary folder if empty
@@ -620,7 +620,7 @@ func (s *service) ListRecycle(req *storagev1pb.ListRecycleRequest, stream storag
 }
 
 func (s *service) RestoreRecycleItem(ctx context.Context, req *storagev1pb.RestoreRecycleItemRequest) (*storagev1pb.RestoreRecycleItemResponse, error) {
-	if err := s.storage.RestoreRecycleItem(ctx, req.RestoreKey); err != nil {
+	if err := s.storage.RestoreRecycleItem(ctx, req.Filename, req.RestoreKey); err != nil {
 		err = errors.Wrap(err, "storageservice: error restoring recycle item")
 		s.logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}

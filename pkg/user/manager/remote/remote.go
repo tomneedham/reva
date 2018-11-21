@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/cernbox/reva/pkg/logger"
 	"github.com/cernbox/reva/pkg/user"
+	"github.com/pkg/errors"
 )
 
 // Options are the configuration options to pass to New for creating a new remote user manager.
@@ -95,7 +95,7 @@ func (um *userManager) GetUserGroups(ctx context.Context, username string) ([]st
 	url := fmt.Sprintf("%s/user/v1/membership/usergroups/%s", um.remoteURL, username)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return groups, err
+		return nil, errors.Wrap(err, "remote: error creating req")
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", um.secret))
 	res, err := client.Do(req)
@@ -123,25 +123,22 @@ func (um *userManager) GetUserGroups(ctx context.Context, username string) ([]st
 
 type groupResponse []string
 
-/*
 // search calls the cboxgroupd daemon for finding entries.
-func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
+func (um *userManager) search(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
-
-	//itemType := r.URL.Query().Get("itemType")
-	//perPage := r.URL.Query().Get("perPage")
 
 	if search == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	searchTarget := p.getSearchTarget(search)
+	searchTarget := "a" // serch for all accounts
+	search = fmt.Sprintf("%s:%s", searchTarget, search)
 
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	client := &http.Client{Transport: tr}
-	url := fmt.Sprintf("%s/user/v1/search/%s", p.remoteURL, search)
+	url := fmt.Sprintf("%s/user/v1/search/%s", um.remoteURL, search)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		p.logger.Error("", zap.Error(err))
@@ -173,4 +170,3 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 	}
 
 }
-*/
