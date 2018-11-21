@@ -1,14 +1,18 @@
 package storage_eos
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	gopath "path"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/cernbox/reva/api"
 	"github.com/cernbox/reva/api/storage_eos/eosclient"
@@ -209,13 +213,75 @@ func (fs *eosStorage) GetMetadata(ctx context.Context, path string) (*api.Metada
 	path = fs.getInternalPath(ctx, path)
 	eosFileInfo, err := fs.c.GetFileInfoByPath(ctx, u.AccountId, path)
 	if err != nil {
-		return nil, err
+
+		// if p is / and err is not found we create the home directory for the user and we retry
+		if api.IsErrorCode(err, api.StorageNotFoundErrorCode) && path == "/" {
+			fs.logger.Warn("user does not have a homedir, we create one")
+
+			if err2 := fs.createHome(ctx, u.AccountId); err2 != nil {
+				fs.logger.Error("api: storage_eos: GetMetadata: error creating homedir for user", zap.String("user", u.AccountId), zap.Error(err))
+				return nil, err
+			}
+
+			fs.logger.Info("api: storage_eos: GetMetadata: homedir create for user", zap.String("user", u.AccountId))
+			// get again md for path now that we have a valid homedir
+
+			eosFileInfo, err = fs.c.GetFileInfoByPath(ctx, u.AccountId, path)
+			if err != nil {
+				fs.logger.Error("api: storage_eos: GetMetadata: error getting eosFileInfo just after creating homedir")
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
+
 	fi := fs.convertToMetadata(eosFileInfo)
 	if fs.forceReadOnly {
 		fi.IsReadOnly = true
 	}
 	return fi, nil
+}
+
+// eos-create-user-directory <eos_mgm_url> <eos_user_dir_prefix> <eos_recycle_dir_prefix> <user_id>
+func (fs *eosStorage) executeScript(ctx context.Context, username string) (string, string, int) {
+
+	//TODO clean all of this
+	cmd := exec.Command("/bin/bash", "/root/eosuser-homedir-creation.sh", "root://eos-fake.cern.ch", "/eos/docker/user/", "/eos/docker/user/proc/recycle", username)
+
+	outBuf := &bytes.Buffer{}
+	errBuf := &bytes.Buffer{}
+	cmd.Stdout = outBuf
+	cmd.Stderr = errBuf
+
+	err := cmd.Run()
+	fs.logger.Info("script to create homedir executed", zap.String("cmd", fmt.Sprintf("%+v", cmd)))
+
+	var exitStatus int
+	if exiterr, ok := err.(*exec.ExitError); ok {
+		// The program has exited with an exit code != 0
+		// This works on both Unix and Windows. Although package
+		// syscall is generally platform dependent, WaitStatus is
+		// defined for both Unix and Windows and in both cases has
+		// an ExitStatus() method with the same signature.
+		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
+			exitStatus = status.ExitStatus()
+		}
+	}
+
+	return outBuf.String(), errBuf.String(), exitStatus
+}
+
+func (fs *eosStorage) createHome(ctx context.Context, username string) error {
+
+	_, stdErr, exitStatus := fs.executeScript(ctx, username)
+	if exitStatus != 0 {
+		fs.logger.Error("api: storage_homemigration: createHome: error calling script for oldhome", zap.Int("exit", exitStatus), zap.String("stderr", stdErr))
+		return errors.New("error calling script to create home for oldhome")
+	}
+	fs.logger.Info("homedir created for user on oldhome", zap.String("user", username))
+	return nil
+
 }
 
 func (fs *eosStorage) ListFolder(ctx context.Context, path string) ([]*api.Metadata, error) {
