@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/cernbox/cernboxapis/gen/proto/go/cernbox/auth/v1"
-	"github.com/cernbox/cernboxapis/gen/proto/go/cernbox/rpc"
+	"github.com/cernbox/cs3apis/gen/proto/go/cs3/auth/v1"
+	"github.com/cernbox/cs3apis/gen/proto/go/cs3/rpc"
 	"github.com/cernbox/reva/pkg/auth"
 	"github.com/cernbox/reva/pkg/logger"
 	"github.com/cernbox/reva/pkg/token"
