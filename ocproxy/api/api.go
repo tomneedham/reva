@@ -3721,6 +3721,7 @@ func (p *proxy) getFolderShares(ctx context.Context, onlyForPath string) ([]*OCS
 		if res.Status != reva_api.StatusCode_OK {
 			return nil, err
 		}
+		fmt.Println("hugo", res.FolderShare)
 		folderShares = append(folderShares, res.FolderShare)
 
 	}
