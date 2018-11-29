@@ -4686,7 +4686,8 @@ func (p *proxy) renderPublicLink(w http.ResponseWriter, r *http.Request) {
 			AccessToken   string
 			Note          string
 			OverwriteHost string
-		}{AccessToken: res.Token, Token: token, Note: "The CERN Cloud Storage", OverwriteHost: p.overwriteHost}
+			BaseUrl       string
+		}{AccessToken: res.Token, Token: token, Note: "The CERN Cloud Storage", OverwriteHost: p.overwriteHost, BaseUrl: p.baseUrl}
 
 		tpl, err := template.New("public_link").Parse(publicLinkTemplate)
 		if err != nil {
@@ -4707,7 +4708,8 @@ func (p *proxy) renderPublicLink(w http.ResponseWriter, r *http.Request) {
 		Size          int
 		Mime          string
 		OverwriteHost string
-	}{AccessToken: res.Token, Token: token, ShareName: pl.Name, Size: int(md.Size), Mime: md.Mime, OverwriteHost: p.overwriteHost}
+		BaseUrl       string
+	}{AccessToken: res.Token, Token: token, ShareName: pl.Name, Size: int(md.Size), Mime: md.Mime, OverwriteHost: p.overwriteHost, BaseUrl: p.baseUrl}
 
 	tpl, err := template.New("public_link_file").Parse(publicLinkTemplateFile)
 	if err != nil {
