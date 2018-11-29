@@ -10,7 +10,7 @@ import (
 )
 
 // New returns an implementation of the token manager that uses JWT as tokens.
-func New(secret string) token.TokenManager {
+func New(secret string) token.Manager {
 	return &manager{secret: secret}
 }
 
