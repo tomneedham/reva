@@ -4635,7 +4635,7 @@ func (p *proxy) renderPublicLink(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// render link not found template
 		p.logger.Error("", zap.Error(err))
-		w.Write([]byte(publicLinkTemplateNotFound))
+		p.renderTemplateNotFound(w)
 		return
 	}
 
@@ -4655,13 +4655,13 @@ func (p *proxy) renderPublicLink(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// render link not found template
 		p.logger.Error("", zap.Error(err))
-		w.Write([]byte(publicLinkTemplateNotFound))
+		p.renderTemplateNotFound(w)
 		return
 	}
 	if res.Status != reva_api.StatusCode_OK {
 		// render link not found template
 		p.logger.Error("", zap.Error(err))
-		w.Write([]byte(publicLinkTemplateNotFound))
+		p.renderTemplateNotFound(w)
 		return
 	}
 
@@ -4674,7 +4674,7 @@ func (p *proxy) renderPublicLink(w http.ResponseWriter, r *http.Request) {
 	md, err := p.getMetadata(ctx, revaPath)
 	if err != nil {
 		p.logger.Error("error getting metadata for public link", zap.Error(err))
-		w.Write([]byte(publicLinkTemplateNotFound))
+		p.renderTemplateNotFound(w)
 		return
 	}
 
@@ -6700,4 +6700,22 @@ func (p *proxy) getCachedMetadata(ctx context.Context, path string) (*reva_api.M
 	p.shareCache.SetWithExpire(path, md, p.cacheEviction)
 	p.logger.Debug("ocproxy: api: getCachedMetadata: md retrieved and stored  in cache", zap.String("path", path))
 	return md, nil
+}
+
+func (p *proxy) renderTemplateNotFound(w http.ResponseWriter) {
+
+	data := struct {
+		Note          string
+		OverwriteHost string
+		BaseUrl       string
+	}{Note: "The CERN Cloud Storage", OverwriteHost: p.overwriteHost, BaseUrl: p.baseUrl}
+
+	tpl, err := template.New("public_link_not_found").Parse(publicLinkTemplateNotFound)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		p.logger.Error("", zap.Error(err))
+		return
+	}
+
+	tpl.Execute(w, data)
 }
