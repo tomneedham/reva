@@ -13,7 +13,7 @@ var opt = &Options{
 	LogOutput: os.Stdout,
 }
 
-var client, _ = New(opt)
+var client = New(opt)
 
 var username = "gonzalhu"
 var home = "/eos/user/g/gonzalhu"
