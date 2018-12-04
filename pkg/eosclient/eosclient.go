@@ -14,7 +14,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/cernbox/reva/pkg/logger"
+	"github.com/cernbox/reva/pkg/log"
 
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
@@ -120,7 +120,7 @@ func (opt *Options) init() {
 // It requires the eos-client and xrootd-client packages installed to work.
 type Client struct {
 	opt    *Options
-	logger *logger.Logger
+	logger *log.Logger
 }
 
 // New creates a new client with the given options.
@@ -128,7 +128,7 @@ func New(opt *Options) *Client {
 	opt.init()
 	c := new(Client)
 	c.opt = opt
-	c.logger = logger.New(opt.LogOutput, "eosclient", opt.TraceKey)
+	c.logger = log.New("eosclient")
 	return c
 }
 
@@ -171,7 +171,7 @@ func (c *Client) execute(ctx context.Context, cmd *exec.Cmd) (string, string, er
 	}
 
 	msg := fmt.Sprintf("cmd=%v env=%v exit=%d", cmd.Args, cmd.Env, exitStatus)
-	c.logger.Log(ctx, msg)
+	c.logger.Println(ctx, msg)
 
 	if err != nil {
 		err = errors.Wrap(err, "eosclient: error while executing command")

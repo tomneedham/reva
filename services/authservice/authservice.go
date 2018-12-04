@@ -2,25 +2,24 @@ package authservice
 
 import (
 	"context"
-	"io"
 
 	"github.com/cernbox/cs3apis/gen/proto/go/cs3/auth/v1"
 	"github.com/cernbox/cs3apis/gen/proto/go/cs3/rpc"
 	"github.com/cernbox/reva/pkg/auth"
-	"github.com/cernbox/reva/pkg/logger"
+	"github.com/cernbox/reva/pkg/log"
 	"github.com/cernbox/reva/pkg/token"
 	"github.com/cernbox/reva/pkg/user"
 
 	"github.com/pkg/errors"
 )
 
-func New(authmgr auth.Manager, tokenmgr token.Manager, usermgr user.Manager, logOut io.Writer, logKey interface{}) authv1pb.AuthServiceServer {
-	logger := logger.New(logOut, "authservice", logKey)
+var logger = log.New("authservice")
+
+func New(authmgr auth.Manager, tokenmgr token.Manager, usermgr user.Manager) authv1pb.AuthServiceServer {
 	return &service{
 		authmgr:  authmgr,
 		tokenmgr: tokenmgr,
 		usermgr:  usermgr,
-		logger:   logger,
 	}
 }
 
@@ -28,7 +27,6 @@ type service struct {
 	authmgr  auth.Manager
 	tokenmgr token.Manager
 	usermgr  user.Manager
-	logger   *logger.Logger
 }
 
 func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.GenerateAccessTokenRequest) (*authv1pb.GenerateAccessTokenResponse, error) {
@@ -37,8 +35,8 @@ func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.Generat
 
 	err := s.authmgr.Authenticate(ctx, username, password)
 	if err != nil {
-		err = errors.Wrap(err, "authservice: error authenticating user")
-		s.logger.Error(ctx, err)
+		err = errors.Wrap(err, "error authenticating user")
+		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
 		res := &authv1pb.GenerateAccessTokenResponse{Status: status}
 		return res, nil
@@ -46,8 +44,8 @@ func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.Generat
 
 	user, err := s.usermgr.GetUser(ctx, username)
 	if err != nil {
-		err = errors.Wrap(err, "authservice: error getting user information")
-		s.logger.Error(ctx, err)
+		err = errors.Wrap(err, "error getting user information")
+		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
 		res := &authv1pb.GenerateAccessTokenResponse{Status: status}
 		return res, nil
@@ -62,13 +60,14 @@ func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.Generat
 
 	accessToken, err := s.tokenmgr.ForgeToken(ctx, claims)
 	if err != nil {
-		err = errors.Wrap(err, "authservice: error creating access token")
-		s.logger.Error(ctx, err)
+		err = errors.Wrap(err, "error creating access token")
+		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
 		res := &authv1pb.GenerateAccessTokenResponse{Status: status}
 		return res, nil
 	}
 
+	logger.Printf(ctx, "user %s authenticated", user.Username)
 	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
 	res := &authv1pb.GenerateAccessTokenResponse{Status: status, AccessToken: accessToken}
 	return res, nil
@@ -76,12 +75,21 @@ func (s *service) GenerateAccessToken(ctx context.Context, req *authv1pb.Generat
 }
 
 func (s *service) WhoAmI(ctx context.Context, req *authv1pb.WhoAmIRequest) (*authv1pb.WhoAmIResponse, error) {
-	u := user.ContextMustGetUser(ctx)
+	token := req.AccessToken
+	claims, err := s.tokenmgr.DismantleToken(ctx, token)
+	if err != nil {
+		err = errors.Wrap(err, "error dismantling access token")
+		logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
+		res := &authv1pb.WhoAmIResponse{Status: status}
+		return res, nil
+	}
+
 	user := &authv1pb.User{
-		Username:    u.Username,
-		DisplayName: u.DisplayName,
-		Groups:      u.Groups,
-		Mail:        u.Mail,
+		Username:    claims["username"].(string),
+		DisplayName: claims["display_name"].(string),
+		Mail:        claims["mail"].(string),
+		Groups:      claims["groups"].([]string),
 	}
 
 	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}

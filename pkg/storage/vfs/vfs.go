@@ -39,6 +39,7 @@ func (fs *vfs) findFS(fn string) (storage.FS, string, error) {
 
 	mount, err := fs.fsTable.GetMount(fn)
 	if err != nil {
+		// if mount is not found and fn is /, return list of mounts
 		return nil, "", errors.Wrap(err, "vfs: error finding mount")
 	}
 

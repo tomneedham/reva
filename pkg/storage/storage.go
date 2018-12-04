@@ -104,7 +104,7 @@ type FSTable interface {
 
 // Mount contains the information on how to mount a filesystem.
 type Mount interface {
-	GetFSName() string
+	GetName() string
 	GetDir() string
 	GetFS() FS
 	GetOptions() *MountOptions
