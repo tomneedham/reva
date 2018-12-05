@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -37,6 +38,9 @@ func main() {
 
 	//whoamiCommand flags
 	whoamiToken := whoamiCommand.String("token", "", "access token to use")
+
+	//lsCommand flags
+	lsCommandLongListing := lsCommand.Bool("l", false, "prints long listing with more info (size, mtime,...)")
 
 	// Login subcommand flag pointers
 	// netrcPtr := loginCommand.String("netrc", "", ".netrc file (Required)")
@@ -79,9 +83,18 @@ func main() {
 	}
 
 	if lsCommand.Parsed() {
-		list("/")
-		fmt.Println("ls")
-		os.Exit(1)
+		mds, err := list("/")
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
+		for _, md := range mds {
+			if *lsCommandLongListing {
+				fmt.Printf("%+v %d %d %s\n", md.Permissions, md.Mtime, md.Size, md.Filename)
+			} else {
+				fmt.Println(md.Filename)
+			}
+		}
 	}
 
 	if mkdirCommand.Parsed() {
@@ -266,9 +279,39 @@ func getConn() (*grpc.ClientConn, error) {
 	return grpc.Dial(REVA_SERVER, grpc.WithInsecure())
 }
 
-func list(fn string) (*storagev1pb.Metadata, error) {
+func list(fn string) ([]*storagev1pb.Metadata, error) {
+	client, err := getStorageClient()
+	if err != nil {
+		return nil, err
+	}
 
+	req := &storagev1pb.ListRequest{
+		Filename: fn,
+	}
+
+	ctx := context.Background()
+	stream, err := client.List(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	mds := []*storagev1pb.Metadata{}
+	for {
+		res, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if res.Status.Code != rpcpb.Code_CODE_OK {
+			return nil, apiError(res.Status)
+		}
+		mds = append(mds, res.Metadata)
+	}
+	return mds, nil
 }
+
 func whoami(token string) (*authv1pb.User, error) {
 	client, err := getAuthClient()
 	if err != nil {

@@ -37,11 +37,12 @@ type localFS struct{ root string }
 func (fs *localFS) normalize(fi os.FileInfo, fn string) *storage.MD {
 	fn = fs.removeRoot(path.Join("/", fn))
 	md := &storage.MD{
-		IsDir: fi.IsDir(),
-		Path:  fn,
-		Size:  uint64(fi.Size()),
-		ID:    fn,
-		Etag:  fmt.Sprintf("%d", fi.ModTime().Unix()),
+		IsDir:       fi.IsDir(),
+		Path:        fn,
+		Size:        uint64(fi.Size()),
+		ID:          fn,
+		Etag:        fmt.Sprintf("%d", fi.ModTime().Unix()),
+		Permissions: &storage.Permissions{Read: true, Write: true, Share: true},
 	}
 	return md
 }
