@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/cernbox/gohub/goconfig"
@@ -14,6 +15,7 @@ import (
 var gc *goconfig.GoConfig
 
 func init() {
+	hostname, _ := os.Hostname()
 	gc = goconfig.New()
 	gc.SetConfigName("ocproxy")
 	gc.AddConfigurationPaths("/etc/ocproxy")
@@ -24,6 +26,7 @@ func init() {
 	gc.Add("tls-cert", "/etc/grid-security/hostcert.pem", "TLS certificate to encrypt connections.")
 	gc.Add("tls-key", "/etc/grid-security/hostkey.pem", "TLS private key to encrypt connections.")
 	gc.Add("tls-enable", false, "Enable TLS for encrypting connections.")
+	gc.Add("hostname", hostname, "Hostname to set in URLs, default is machine hostname")
 
 	gc.Add("data-chunks-folder", "", "folder where to store data chunks before they are commited to REVA.")
 	gc.Add("temporary-folder", "", "folder where to store temporary data. Empty means use the OS temporary folder.")
@@ -79,6 +82,7 @@ func main() {
 		CacheEviction:         gc.GetInt("cache-eviction"),
 		MailServer:            gc.GetString("apps-mail-server"),
 		MailServerFromAddress: gc.GetString("apps-mail-server-from-address"),
+		Hostname:              gc.GetString("hostname"),
 	}
 
 	_, err := api.New(opts)
