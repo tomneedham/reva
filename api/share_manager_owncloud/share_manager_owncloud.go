@@ -96,15 +96,13 @@ func (sm *shareManager) GetReceivedOCMShare(ctx context.Context, id string) (*ap
 		return nil, err
 	}
 
-	host := strings.Split(dbShare.UIDOwner, "@")[1]
-
-	provider, err := sm.getDBOCMProvider(ctx, host)
+	provider, err := sm.getDBOCMProvider(ctx, dbShare.OCMDomain)
 	if err != nil {
-		l.Error("cannot get db provider", zap.Error(err), zap.String("host", host))
+		l.Error("cannot get db provider", zap.Error(err), zap.String("host", dbShare.OCMDomain))
 		return nil, err
 	}
 
-	share, err := sm.convertToReceivedOCMShare(ctx, dbShare, provider.Endpoint)
+	share, err := sm.convertToReceivedOCMShare(ctx, dbShare, provider.WebdavEndpoint)
 	if err != nil {
 		l.Error("", zap.Error(err))
 		return nil, err
@@ -441,6 +439,9 @@ func (sm *shareManager) AddFolderShare(ctx context.Context, p string, recipient 
 
 func (sm *shareManager) AddOCMShare(ctx context.Context, p string, recipient string) (*api.OCMShare, error) {
 	l := ctx_zap.Extract(ctx)
+
+	l.Info("diogo: ADD OCM SHARE (TODO ADD EOS BASE PATH)", zap.String("path", p))
+
 	lastId, err := sm.AddShare(ctx, 4, p, recipient, true, uuid.New().String())
 
 	if err != nil {
@@ -542,20 +543,22 @@ type ocShare struct {
 */
 
 type ocmProvider struct {
-	Domain     string
-	Endpoint   string
-	APIVersion string
+	Domain         string
+	APIVersion     string
+	APIEndpoint    string
+	WebdavEndpoint string
 }
 
 func (sm *shareManager) getDBOCMProvider(ctx context.Context, domain string) (*ocmProvider, error) {
 	l := ctx_zap.Extract(ctx)
 
 	var (
-		url        string
-		apiVersion string
+		apiVersion     string
+		apiEndpoint    string
+		webdavEndpoint string
 	)
-	query := fmt.Sprintf("SELECT end_point, api_version FROM ocm_providers WHERE domain=?")
-	err := sm.db.QueryRow(query, domain).Scan(&url, &apiVersion)
+	query := fmt.Sprintf("SELECT api_version, api_endpoint, webdav_endpoint FROM ocm_providers WHERE domain=?")
+	err := sm.db.QueryRow(query, domain).Scan(&apiVersion, &apiEndpoint, &webdavEndpoint)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			l.Error("Cannot find provider", zap.String("domain", domain))
@@ -566,9 +569,10 @@ func (sm *shareManager) getDBOCMProvider(ctx context.Context, domain string) (*o
 	}
 
 	provider := &ocmProvider{
-		Domain:     domain,
-		Endpoint:   url,
-		APIVersion: apiVersion,
+		Domain:         domain,
+		APIVersion:     apiVersion,
+		APIEndpoint:    apiEndpoint,
+		WebdavEndpoint: webdavEndpoint,
 	}
 	return provider, nil
 
@@ -586,6 +590,7 @@ type dbShare struct {
 	FileTarget  string
 	State       int
 	Token       string
+	OCMDomain   string
 }
 
 func (sm *shareManager) getDBOCMShareWithMe(ctx context.Context, accountID, id string) (*dbShare, error) {
@@ -607,22 +612,23 @@ func (sm *shareManager) getDBOCMShareWithMe(ctx context.Context, accountID, id s
 		fileTarget  string
 		state       int
 		token       string
+		ocmDomain   string
 	)
 
 	queryArgs := []interface{}{id, accountID}
 
 	var query string
 
-	query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, coalesce(token, '') from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and share_type=5 and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
+	query = "select coalesce(uid_owner, '') as uid_owner, coalesce(share_with, '') as share_with, coalesce(fileid_prefix, '') as fileid_prefix, coalesce(item_source, '') as item_source, stime, permissions, share_type, file_target, accepted, coalesce(token, ''), ocm_domain from oc_share where id=? and (accepted=0 or accepted=1) and (share_with=?) and share_type=5 and id not in (select distinct(id) from oc_share_acl where rejected_by=?)"
 	queryArgs = append(queryArgs, accountID)
 
-	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state, &token); err != nil {
+	if err := sm.db.QueryRow(query, queryArgs...).Scan(&uidOwner, &shareWith, &prefix, &itemSource, &stime, &permissions, &shareType, &fileTarget, &state, &token, &ocmDomain); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, api.NewError(api.FolderShareNotFoundErrorCode)
 		}
 		return nil, err
 	}
-	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType, FileTarget: fileTarget, State: state, Token: token}
+	dbShare := &dbShare{ID: int(intID), UIDOwner: uidOwner, Prefix: prefix, ItemSource: itemSource, ShareWith: shareWith, STime: stime, Permissions: permissions, ShareType: shareType, FileTarget: fileTarget, State: state, Token: token, OCMDomain: ocmDomain}
 	return dbShare, nil
 
 }
@@ -868,9 +874,9 @@ func (sm *shareManager) convertToReceivedFolderShare(ctx context.Context, dbShar
 
 }
 
-func (sm *shareManager) convertToReceivedOCMShare(ctx context.Context, dbShare *dbShare, baseUrl string) (*api.FolderShare, error) {
+func (sm *shareManager) convertToReceivedOCMShare(ctx context.Context, dbShare *dbShare, webdavUrl string) (*api.FolderShare, error) {
 
-	path := "/ocm/" + strings.Join([]string{baseUrl, dbShare.Token, dbShare.FileTarget}, ";")
+	path := "/ocm/" + strings.Join([]string{webdavUrl, dbShare.Token, dbShare.FileTarget}, ";")
 	share := &api.FolderShare{
 		OwnerId:  dbShare.UIDOwner,
 		Id:       fmt.Sprintf("%d", dbShare.ID),
