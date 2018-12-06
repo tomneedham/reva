@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -324,6 +325,7 @@ func (p *proxy) onlyOfficeTrack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	p.logger.Info(fmt.Sprintf("onlyoffice/config: %+v", req))
 	if req.Status == trackerStatusEditing || req.Status == trackerStatusClosed {
 		payload := struct {
 			Err int `json:"error"`
@@ -335,9 +337,7 @@ func (p *proxy) onlyOfficeTrack(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		//encoded = []byte(`"{"message": "error tracking"}`)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		//	w.WriteHeader(http.StatusBadRequest)
 		w.Write(encoded)
 		return
 	}
@@ -359,9 +359,7 @@ func (p *proxy) onlyOfficeTrack(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			//encoded = []byte(`"{"message": "error tracking"}`)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			//	w.WriteHeader(http.StatusBadRequest)
 			w.Write(encoded)
 			return
 		}
@@ -566,10 +564,20 @@ func (p *proxy) onlyOfficeConfig(w http.ResponseWriter, r *http.Request) {
 
 	// poor man approach to get 20 characters unique sessions
 	// request sent to onlyoffice to increase this value.
-	parts := strings.Split(md.Id, ":")
-	key := parts[len(parts)-1]
+	// create uuid key and set it to map
+	// TODO(labkode): onlyOffice to increase key value
+	key := md.Etag
+	if len(key) > 20 {
+		key = key[0:20]
+	}
+	// remove special chars
+	key = strings.Replace(key, ":", "", -1)
+	key = strings.Replace(key, "\"", "", -1)
+	p.onlyOfficeMutex.Lock()
+	p.onlyOfficeMap[md.EosFile] = key
+	p.onlyOfficeMutex.Unlock()
 
-	p.logger.Info(fmt.Sprintf("onlyoffice key=%s for path=%s", key, fn))
+	p.logger.Info(fmt.Sprintf("onlyoffice track: key=%s for path=%s for md=%+v", key, fn, md))
 	//key := uuid.Must(uuid.NewV4()).String()
 
 	url := fmt.Sprintf("https://%s/index.php/apps/onlyoffice/storage/download", p.hostname) + md.Path + "?x-access-token=" + accessToken
@@ -599,6 +607,7 @@ func (p *proxy) onlyOfficeConfig(w http.ResponseWriter, r *http.Request) {
   "type": "%s"
 } `
 	msg = fmt.Sprintf(msg, fileType, key, title, url, documentType, callbackUrl, goBackUrl, lang, mode, userId, displayName, "desktop")
+	p.logger.Info("onlyoffice/config response=" + msg)
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(msg))
 
@@ -1903,6 +1912,9 @@ func New(opt *Options) (http.Handler, error) {
 		mailServerFromAddress: opt.MailServerFromAddress,
 
 		hostname: opt.Hostname,
+
+		onlyOfficeMutex: &sync.Mutex{},
+		onlyOfficeMap:   map[string]string{},
 	}
 
 	proxy.registerRoutes()
@@ -1954,6 +1966,9 @@ type proxy struct {
 	mailServerFromAddress string
 
 	hostname string
+
+	onlyOfficeMutex *sync.Mutex
+	onlyOfficeMap   map[string]string
 }
 
 // TODO(labkode): store this global var inside the proxy
