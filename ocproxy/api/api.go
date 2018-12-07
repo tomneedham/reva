@@ -3204,6 +3204,7 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 	inexactGroupEntries := []*OCSShareeEntry{}
 
 	if strings.Contains(search, "@") {
+		ctx := r.Context()
 		gCtx := GetContextWithAuth(ctx)
 
 		searchCompontents := strings.Split(search, "@")
