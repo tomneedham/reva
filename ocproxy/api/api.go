@@ -3204,13 +3204,13 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 	inexactGroupEntries := []*OCSShareeEntry{}
 
 	if strings.Contains(search, "@") {
-		ctx := r.Context()
+		gCtx := GetContextWithAuth(ctx)
 
 		searchCompontents := strings.Split(search, "@")
 		searchUser := searchCompontents[0]
 		searchDomain := searchCompontents[1]
 
-		stream, err := p.getShareClient().ListProviders(ctx, &reva_api.EmptyReq{})
+		stream, err := p.getShareClient().ListProviders(gCtx, &reva_api.EmptyReq{})
 
 		if err == nil {
 			for {
