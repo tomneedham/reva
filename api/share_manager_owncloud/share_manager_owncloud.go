@@ -577,6 +577,44 @@ func (sm *shareManager) getDBOCMProvider(ctx context.Context, domain string) (*o
 	return provider, nil
 
 }
+func (sm *shareManager) getDBOCMProviders(ctx context.Context) ([]*ocmProvider, error) {
+
+	rows, err := sm.db.Query("SELECT domain, api_version, api_endpoint, webdav_endpoint FROM ocm_providers")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var (
+		domain         string
+		apiVersion     string
+		apiEndpoint    string
+		webdavEndpoint string
+	)
+
+	dbProviders := []*ocmProvider{}
+	for rows.Next() {
+		err := rows.Scan(&domain, &apiVersion, &apiEndpoint, &webdavEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		dbProvider := &ocmProvider{
+			Domain:         domain,
+			APIVersion:     apiVersion,
+			APIEndpoint:    apiEndpoint,
+			WebdavEndpoint: webdavEndpoint,
+		}
+		dbProviders = append(dbProviders, dbProvider)
+
+	}
+	err = rows.Err()
+	if err != nil {
+		return nil, err
+	}
+
+	return dbProviders, nil
+
+}
 
 type dbShare struct {
 	ID          int
@@ -949,4 +987,21 @@ func splitFileID(fileID string) (string, string) {
 // joinFileID concatenates the prefix and the inode to form a valid fileID.
 func joinFileID(prefix, inode string) string {
 	return strings.Join([]string{prefix, inode}, ":")
+}
+
+func (sm *shareManager) ListProviders(ctx context.Context) ([]*api.Provider, error) {
+
+	dbProviders, err := sm.getDBOCMProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	providers := []*api.Provider{}
+	for _, dbProvider := range dbProviders {
+
+		providers = append(providers, &api.Provider{
+			Domain: dbProvider.Domain,
+		})
+
+	}
+	return providers, nil
 }

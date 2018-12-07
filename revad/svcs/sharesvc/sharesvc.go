@@ -249,3 +249,21 @@ func (s *svc) UpdatePublicLink(ctx context.Context, req *api.UpdateLinkReq) (*ap
 	publicLinkRes := &api.PublicLinkResponse{PublicLink: publicLink}
 	return publicLinkRes, nil
 }
+
+func (s *svc) ListProviders(req *api.EmptyReq, stream api.Share_ListProvidersServer) error {
+	ctx := stream.Context()
+	l := ctx_zap.Extract(ctx)
+	providers, err := s.shareManager.ListProviders(ctx)
+	if err != nil {
+		l.Error("error listing received providers", zap.Error(err))
+		return err
+	}
+	for _, provider := range providers {
+		providerRes := &api.ProvidersResponse{Provider: provider}
+		if err := stream.Send(providerRes); err != nil {
+			l.Error("error streaming provider", zap.Error(err))
+			return err
+		}
+	}
+	return nil
+}

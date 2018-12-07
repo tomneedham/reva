@@ -3204,14 +3204,42 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 	inexactGroupEntries := []*OCSShareeEntry{}
 
 	if strings.Contains(search, "@") {
+		ctx := r.Context()
 
-		//TODO check if remote server is trusted
+		searchCompontents := strings.Split(search, "@")
+		searchUser := searchCompontents[0]
+		searchDomain := searchCompontents[1]
 
-		ocsEntry := &OCSShareeEntry{
-			Value: &OCSShareeEntryValue{ShareType: ShareTypeOCM, ShareWith: search},
+		stream, err := p.getShareClient().ListProviders(ctx, &reva_api.EmptyReq{})
+
+		if err == nil {
+			for {
+				res, err := stream.Recv()
+				if err == io.EOF {
+					break
+				}
+
+				if err == nil && res.Status == reva_api.StatusCode_OK {
+					provider := res.Provider.Domain
+
+					if strings.HasPrefix(provider, searchDomain) {
+
+						ocsEntry := &OCSShareeEntry{
+							Value: &OCSShareeEntryValue{ShareType: ShareTypeOCM, ShareWith: search},
+						}
+						ocsEntry.Label = fmt.Sprintf("%s@%s (external)", searchUser, provider)
+
+						if provider == searchDomain {
+							exactUserEntries = append(exactUserEntries, ocsEntry)
+						} else {
+							inexactUserEntries = append(inexactUserEntries, ocsEntry)
+						}
+					}
+
+				}
+			}
+
 		}
-		ocsEntry.Label = fmt.Sprintf("%s (external)", search)
-		exactUserEntries = append(exactUserEntries, ocsEntry)
 
 	} else {
 
