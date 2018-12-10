@@ -41,8 +41,9 @@ func (fs *shareStorage) getReceivedShare(ctx context.Context, name string) (*api
 	if err != nil {
 		// fallback to OCM
 		fs.logger.Info("USING OCM", zap.String("name", name))
-		ids := strings.Split(name, "(id:")[1]
-		ids = strings.Replace(ids, ")", "", 1)
+		// ids := strings.Split(name, "(id:")[1]
+		// ids = strings.Replace(ids, ")", "", 1)
+		ids := strings.Replace(name, "/", "", 1)
 		share, err = fs.shareManager.GetReceivedOCMShare(ctx, ids)
 		if err != nil {
 			return nil, "", err
