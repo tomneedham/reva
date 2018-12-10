@@ -3233,8 +3233,8 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 						// if provider == searchDomain {
 						exactUserEntries = append(exactUserEntries, ocsEntry)
 						// } else {
-							// inexactUserEntries = append(inexactUserEntries, ocsEntry)
-						}
+						// inexactUserEntries = append(inexactUserEntries, ocsEntry)
+						// }
 					}
 
 				}
