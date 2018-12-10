@@ -2,7 +2,10 @@ package share_manager_owncloud
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -455,8 +458,31 @@ func (sm *shareManager) AddOCMShare(ctx context.Context, p string, recipient str
 
 	l.Info("share commited on storage acl", zap.String("share_id", share.Id))
 
-	//TODO PROPAGATE
-	//sm.Unshare(ctx, share.Id)
+	// Propagate the share to the receiving provider
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := http.Client{Transport: tr}
+	form := url.Values{}
+	form.Add("shareID", share.Id)
+	req, err := http.NewRequest("POST", "localhost:9994", strings.NewReader(form.Encode()))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	if err != nil {
+		l.Error("error preparing request to ocmd", zap.Error(err))
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		l.Error("error doing request to ocmd", zap.Error(err))
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		// TODO get error message
+		sm.Unshare(ctx, share.Id)
+		return nil, errors.New("Error while sending to remote provider")
+	}
 
 	return share, nil
 }

@@ -6800,8 +6800,6 @@ func (p *proxy) getOCPath(ctx context.Context, md *reva_api.Metadata) string {
 	revaPath := md.Path
 	var ocPath string
 
-	p.logger.Info("diogo: GET OCM PATH", zap.String("path", md.Path))
-
 	if token, ok := reva_api.ContextGetPublicLinkToken(ctx); ok && token != "" {
 		ocPath = strings.TrimPrefix(revaPath, p.revaPublicLinkPrefix)
 		ocPath = strings.TrimPrefix(ocPath, "/")
@@ -6817,6 +6815,7 @@ func (p *proxy) getOCPath(ctx context.Context, md *reva_api.Metadata) string {
 			tokens[0] = p.addShareTarget(ctx, tokens[0], md)
 
 			if md.IsOcm && len(tokens) > 2 {
+				//to remove .../ocm/folder_name/...
 				tokens = append(tokens[0:1], tokens[3:]...)
 			}
 
