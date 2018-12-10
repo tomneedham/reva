@@ -174,7 +174,7 @@ type ocmPath struct {
 
 func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
 
-	path := strings.TrimPrefix(originalPath, "/ocm/")
+	path := strings.Replace(originalPath, "/https:/", "https://", 1)
 	values := strings.Split(path, ";")
 
 	return &ocmPath{
