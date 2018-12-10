@@ -465,7 +465,7 @@ func (sm *shareManager) AddOCMShare(ctx context.Context, p string, recipient str
 	client := http.Client{Transport: tr}
 	form := url.Values{}
 	form.Add("shareID", share.Id)
-	req, err := http.NewRequest("POST", "localhost:9994", strings.NewReader(form.Encode()))
+	req, err := http.NewRequest("POST", "http://localhost:9994", strings.NewReader(form.Encode()))
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 	if err != nil {
 		l.Error("error preparing request to ocmd", zap.Error(err))
