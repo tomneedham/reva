@@ -3230,10 +3230,10 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 						}
 						ocsEntry.Label = fmt.Sprintf("%s@%s (external)", searchUser, provider)
 
-						if provider == searchDomain {
-							exactUserEntries = append(exactUserEntries, ocsEntry)
-						} else {
-							inexactUserEntries = append(inexactUserEntries, ocsEntry)
+						// if provider == searchDomain {
+						exactUserEntries = append(exactUserEntries, ocsEntry)
+						// } else {
+							// inexactUserEntries = append(inexactUserEntries, ocsEntry)
 						}
 					}
 
