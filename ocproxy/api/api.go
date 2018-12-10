@@ -3230,11 +3230,11 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 						}
 						ocsEntry.Label = fmt.Sprintf("%s@%s (external)", searchUser, provider)
 
-						// if provider == searchDomain {
-						exactUserEntries = append(exactUserEntries, ocsEntry)
-						// } else {
-						// inexactUserEntries = append(inexactUserEntries, ocsEntry)
-						// }
+						if provider == searchDomain {
+							exactUserEntries = append(exactUserEntries, ocsEntry)
+						} else {
+							inexactUserEntries = append(inexactUserEntries, ocsEntry)
+						}
 					}
 
 				}
@@ -6800,6 +6800,8 @@ func (p *proxy) getOCPath(ctx context.Context, md *reva_api.Metadata) string {
 	revaPath := md.Path
 	var ocPath string
 
+	p.logger.Info("diogo: GET OCM PATH", zap.String("path", md.Path))
+
 	if token, ok := reva_api.ContextGetPublicLinkToken(ctx); ok && token != "" {
 		ocPath = strings.TrimPrefix(revaPath, p.revaPublicLinkPrefix)
 		ocPath = strings.TrimPrefix(ocPath, "/")
@@ -6807,13 +6809,20 @@ func (p *proxy) getOCPath(ctx context.Context, md *reva_api.Metadata) string {
 		vals := strings.Split(ocPath, "/")
 		ocPath = path.Join(p.ownCloudPublicLinkPrefix, path.Join(vals[1:]...))
 	} else {
+
 		if strings.HasPrefix(revaPath, p.revaSharePrefix) {
 			ocPath = strings.TrimPrefix(revaPath, p.revaSharePrefix)
 			ocPath = strings.TrimPrefix(ocPath, "/")
 			tokens := strings.Split(ocPath, "/")
 			tokens[0] = p.addShareTarget(ctx, tokens[0], md)
+
+			if md.IsOcm && len(tokens) > 2 {
+				tokens = append(tokens[0:1], tokens[3:]...)
+			}
+
 			ocPath = path.Join("/", path.Join(tokens...))
 			ocPath = path.Join(p.ownCloudSharePrefix, ocPath)
+
 		} else {
 			if strings.HasPrefix(revaPath, p.revaHomePrefix) {
 				ocPath = strings.TrimPrefix(revaPath, p.revaHomePrefix)

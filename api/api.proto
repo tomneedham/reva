@@ -221,6 +221,8 @@ message Metadata {
 	// Migration extended metadata records
 	string mig_id = 17;
 	string mig_path = 18;
+
+	bool is_ocm = 19;
 }
 
 message PathReq {

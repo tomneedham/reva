@@ -40,6 +40,7 @@ func (fs *localStorage) convertToFileInfoWithNamespace(osFileInfo os.FileInfo, n
 	fi.Size = uint64(osFileInfo.Size())
 	fi.Id = fi.Path
 	fi.Etag = fmt.Sprintf("%d", osFileInfo.ModTime().Unix())
+	fi.IsOcm = true
 	return fi
 }
 
