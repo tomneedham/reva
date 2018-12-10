@@ -37,25 +37,24 @@ func (fs *shareStorage) getReceivedShare(ctx context.Context, name string) (*api
 	}
 
 	id := items[1]
-	share, err := fs.shareManager.GetReceivedFolderShare(ctx, id)
-	if err != nil {
-		// fallback to OCM
-		fs.logger.Info("USING OCM", zap.String("name", name))
-		// ids := strings.Split(name, "(id:")[1]
-		// ids = strings.Replace(ids, ")", "", 1)
-		ids := strings.Replace(name, "/", "", 1)
-		share, err = fs.shareManager.GetReceivedOCMShare(ctx, ids)
-		if err != nil {
-			return nil, "", err
-		}
-		return share, "", nil
-	}
-	fs.logger.Info("NOT USING OCM")
 
 	var relativePath string
 	if len(items) > 2 {
 		relativePath = path.Join(items[2:]...)
 	}
+
+	share, err := fs.shareManager.GetReceivedFolderShare(ctx, id)
+	if err != nil {
+		// fallback to OCM
+		fs.logger.Info("USING OCM", zap.String("name", name))
+		share, err = fs.shareManager.GetReceivedOCMShare(ctx, id)
+		if err != nil {
+			return nil, "", err
+		}
+		fs.logger.Debug("resolve received OCM share path", zap.String("path", name), zap.String("relativepath", relativePath), zap.String("sharepath", share.Path), zap.String("share_id", share.Id))
+		return share, relativePath, nil
+	}
+	fs.logger.Info("NOT USING OCM")
 
 	fs.logger.Debug("resolve received share path", zap.String("path", name), zap.String("relativepath", relativePath), zap.String("sharepath", share.Path), zap.String("share_id", share.Id))
 	return share, relativePath, nil

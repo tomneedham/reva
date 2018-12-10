@@ -455,6 +455,9 @@ func (sm *shareManager) AddOCMShare(ctx context.Context, p string, recipient str
 
 	l.Info("share commited on storage acl", zap.String("share_id", share.Id))
 
+	//TODO PROPAGATE
+	//sm.Unshare(ctx, share.Id)
+
 	return share, nil
 }
 
