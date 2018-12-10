@@ -440,8 +440,6 @@ func (sm *shareManager) AddFolderShare(ctx context.Context, p string, recipient 
 func (sm *shareManager) AddOCMShare(ctx context.Context, p string, recipient string) (*api.OCMShare, error) {
 	l := ctx_zap.Extract(ctx)
 
-	l.Info("diogo: ADD OCM SHARE (TODO ADD EOS BASE PATH)", zap.String("path", p))
-
 	lastId, err := sm.AddShare(ctx, 4, p, recipient, true, uuid.New().String())
 
 	if err != nil {
@@ -503,6 +501,12 @@ func (sm *shareManager) AddShare(ctx context.Context, shareType int, p string, r
 
 	stmtString := "insert into oc_share set share_type=?,uid_owner=?,uid_initiator=?,item_type=?,fileid_prefix=?,item_source=?,file_source=?,permissions=?,stime=?,share_with=?,file_target=?,token=?"
 	stmtValues := []interface{}{shareType, u.AccountId, u.AccountId, itemType, prefix, itemSource, fileSource, permissions, time.Now().Unix(), recipient, targetPath, token}
+
+	if shareType == 4 {
+		//THIS IS AN OCM SHARE
+		stmtString += ",ocm_eos_base_path=?"
+		stmtValues = append(stmtValues, md.EosFile[:strings.LastIndex(md.EosFile, targetPath)])
+	}
 
 	stmt, err := sm.db.Prepare(stmtString)
 	if err != nil {
