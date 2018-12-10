@@ -3225,10 +3225,12 @@ func (p *proxy) search(w http.ResponseWriter, r *http.Request) {
 
 					if strings.HasPrefix(provider, searchDomain) {
 
+						shareWith := fmt.Sprintf("%s@%s", searchUser, provider)
+
 						ocsEntry := &OCSShareeEntry{
-							Value: &OCSShareeEntryValue{ShareType: ShareTypeOCM, ShareWith: search},
+							Value: &OCSShareeEntryValue{ShareType: ShareTypeOCM, ShareWith: shareWith},
 						}
-						ocsEntry.Label = fmt.Sprintf("%s@%s (external)", searchUser, provider)
+						ocsEntry.Label = fmt.Sprintf("%s (external)", shareWith)
 
 						if provider == searchDomain {
 							exactUserEntries = append(exactUserEntries, ocsEntry)
