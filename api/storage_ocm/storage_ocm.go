@@ -78,7 +78,7 @@ func (fs *localStorage) Move(ctx context.Context, oldName, newName string) error
 func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Metadata, error) {
 
 	ocmPath := fs.getOCMPath(name)
-	fs.logger.Info("GETTING METADATA FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+	fs.logger.Info("GETTING METADATA FROM WEBDAV SERVER", zap.String("name", name), zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)

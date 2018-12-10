@@ -913,8 +913,10 @@ func (sm *shareManager) convertToReceivedFolderShare(ctx context.Context, dbShar
 }
 
 func (sm *shareManager) convertToReceivedOCMShare(ctx context.Context, dbShare *dbShare, webdavUrl string) (*api.FolderShare, error) {
+	l := ctx_zap.Extract(ctx)
+	l.Info("CONVERTING TO OCM SHARE", zap.String("webdavUrl", webdavUrl), zap.String("Token", dbShare.Token), zap.String("FileTarget", dbShare.FileTarget))
 
-	path := "/ocm/" + strings.Join([]string{webdavUrl, dbShare.Token, dbShare.FileTarget}, ";")
+	path := strings.Join([]string{"/ocm/" + webdavUrl, dbShare.Token, dbShare.FileTarget}, ";")
 	share := &api.FolderShare{
 		OwnerId:  dbShare.UIDOwner,
 		Id:       fmt.Sprintf("%d", dbShare.ID),
