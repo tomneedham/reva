@@ -65,15 +65,37 @@ func (fs *localStorage) GetQuota(ctx context.Context, name string) (int, int, er
 }
 
 func (fs *localStorage) CreateDir(ctx context.Context, name string) error {
-	return api.NewError(api.StorageNotSupportedErrorCode)
+
+	ocmPath := fs.getOCMPath(name)
+	fs.logger.Info("CREATE DIR FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
+
+	return dav.Mkdir(ocmPath.FileTarget, 0644)
 }
 
 func (fs *localStorage) Delete(ctx context.Context, name string) error {
-	return api.NewError(api.StorageNotSupportedErrorCode)
+
+	ocmPath := fs.getOCMPath(name)
+	fs.logger.Info("DELETE FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
+
+	return dav.Remove(ocmPath.FileTarget)
 }
 
 func (fs *localStorage) Move(ctx context.Context, oldName, newName string) error {
-	return api.NewError(api.StorageNotSupportedErrorCode)
+
+	oldPath := fs.getOCMPath(oldName)
+	newPath := fs.getOCMPath(newName)
+	fs.logger.Info("MOVE FROM WEBDAV SERVER", zap.String("WebdavURL", oldPath.WebdavURL), zap.String("Token", oldPath.Token), zap.String("oldFileTarget", oldPath.FileTarget), zap.String("newFileTarget", newPath.FileTarget))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dav := gowebdav.NewClient(oldPath.WebdavURL, oldPath.Token, oldPath.Token)
+
+	return dav.Rename(oldPath.FileTarget, newPath.FileTarget, true)
 }
 
 func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Metadata, error) {
@@ -121,7 +143,14 @@ func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Met
 }
 
 func (fs *localStorage) Upload(ctx context.Context, name string, r io.ReadCloser) error {
-	return api.NewError(api.StorageNotSupportedErrorCode)
+
+	ocmPath := fs.getOCMPath(name)
+	fs.logger.Info("UPLOAD FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
+
+	return dav.WriteStream(ocmPath.FileTarget, r, 0644)
 }
 
 func (fs *localStorage) Download(ctx context.Context, name string) (io.ReadCloser, error) {
