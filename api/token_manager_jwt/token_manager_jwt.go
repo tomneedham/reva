@@ -82,6 +82,16 @@ func (tm *tokenManager) DismantleUserToken(ctx context.Context, token string) (*
 	return user, nil
 }
 
+func (tm *tokenManager) DismantleOauthToken(ctx context.Context, token string) (*api.User, error) {
+	l := ctx_zap.Extract(ctx)
+	l.Error("RECEIVED TOKEN", zap.String("token", token))
+
+	user := &api.User{
+		AccountId: "user0",
+	}
+	return user, nil
+}
+
 func (tm *tokenManager) ForgePublicLinkToken(ctx context.Context, pl *api.PublicLink) (string, error) {
 	l := ctx_zap.Extract(ctx)
 	token := jwt.New(jwt.GetSigningMethod("HS256"))

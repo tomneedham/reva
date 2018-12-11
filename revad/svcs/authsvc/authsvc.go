@@ -48,6 +48,20 @@ func (s *svc) DismantleUserToken(ctx context.Context, req *api.TokenReq) (*api.U
 	return userRes, nil
 }
 
+func (s *svc) DismantleOauthToken(ctx context.Context, req *api.TokenReq) (*api.UserResponse, error) {
+	l := ctx_zap.Extract(ctx)
+	token := req.Token
+	u, err := s.tm.DismantleOauthToken(ctx, token)
+	if err != nil {
+		l.Warn("token invalid", zap.Error(err))
+		res := &api.UserResponse{Status: api.StatusCode_TOKEN_INVALID}
+		return res, nil
+		//return nil, api.NewError(api.TokenInvalidErrorCode).WithMessage(err.Error())
+	}
+	userRes := &api.UserResponse{User: u}
+	return userRes, nil
+}
+
 func (s *svc) ForgePublicLinkToken(ctx context.Context, req *api.ForgePublicLinkTokenReq) (*api.TokenResponse, error) {
 	l := ctx_zap.Extract(ctx)
 	pl, err := s.lm.AuthenticatePublicLink(ctx, req.Token, req.Password)

@@ -63,17 +63,17 @@ func (p *proxy) registerRoutes() {
 	p.router.HandleFunc("/remote.php/dav/files/{username}/{path:.*}", p.tokenAuth(p.move)).Methods("MOVE")
 
 	// user-relative routes
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.get)).Methods("GET")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.put)).Methods("PUT")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.options)).Methods("OPTIONS")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.lock)).Methods("LOCK")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.unlock)).Methods("UNLOCK")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.head)).Methods("HEAD")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.mkcol)).Methods("MKCOL")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.proppatch)).Methods("PROPPATCH")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.propfind)).Methods("PROPFIND")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.delete)).Methods("DELETE")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.move)).Methods("MOVE")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.get)).Methods("GET")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.put)).Methods("PUT")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.options)).Methods("OPTIONS")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.lock)).Methods("LOCK")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.unlock)).Methods("UNLOCK")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.head)).Methods("HEAD")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.mkcol)).Methods("MKCOL")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.proppatch)).Methods("PROPPATCH")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.propfind)).Methods("PROPFIND")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.delete)).Methods("DELETE")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.move)).Methods("MOVE")
 
 	// favorites routes
 	p.router.HandleFunc("/remote.php/dav/files/{username}/{path:.*}", p.tokenAuth(p.getFav)).Methods("REPORT")
@@ -6657,6 +6657,47 @@ func GetContextWithAuth(ctx context.Context) context.Context {
 		return metadata.NewOutgoingContext(ctx, header)
 	}
 	return ctx
+}
+
+func (p *proxy) oauthAuth(h http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		normalizedPath := mux.Vars(r)["path"]
+		normalizedPath = path.Join("/", path.Clean(normalizedPath))
+		mux.Vars(r)["path"] = normalizedPath
+
+		authClient := p.getAuthClient()
+
+		// 1st: check if token comes from header
+		token := r.Header.Get("X-Access-Token")
+
+		// 2nd: check if token comes from query parameter
+		if token == "" {
+			token = r.URL.Query().Get("x-access-token")
+		}
+
+		if token == "" {
+			p.logger.Warn("auth token not provided", zap.String("X-Access-Token", token))
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		// try with user token
+		userRes, err := authClient.DismantleOauthToken(ctx, &reva_api.TokenReq{Token: token})
+		if err == nil && userRes.Status == reva_api.StatusCode_OK {
+			user := userRes.User
+			ctx = reva_api.ContextSetUser(ctx, user)
+			ctx = reva_api.ContextSetAccessToken(ctx, token)
+			r = r.WithContext(ctx)
+			p.logger.Info("user authenticated with token", zap.String("account_id", user.AccountId))
+			h(w, r)
+			return
+		}
+
+		p.logger.Info("NOT AUTHENTICATED WITH OAUTH")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	})
 }
 
 func (p *proxy) tokenAuth(h http.HandlerFunc) http.HandlerFunc {

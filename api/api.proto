@@ -6,6 +6,7 @@ package api;
 service Auth {
 	rpc ForgeUserToken(ForgeUserTokenReq) returns (TokenResponse) {}
 	rpc DismantleUserToken(TokenReq) returns (UserResponse) {}
+	rpc DismantleOauthToken(TokenReq) returns (UserResponse) {}
 	rpc ForgePublicLinkToken(ForgePublicLinkTokenReq) returns (TokenResponse) {}
 	rpc DismantlePublicLinkToken(TokenReq) returns (PublicLinkResponse) {}
 }

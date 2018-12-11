@@ -197,6 +197,7 @@ type AuthManager interface {
 type TokenManager interface {
 	ForgeUserToken(ctx context.Context, user *User) (string, error)
 	DismantleUserToken(ctx context.Context, token string) (*User, error)
+	DismantleOauthToken(ctx context.Context, token string) (*User, error)
 
 	ForgePublicLinkToken(ctx context.Context, pl *PublicLink) (string, error)
 	DismantlePublicLinkToken(ctx context.Context, token string) (*PublicLink, error)
