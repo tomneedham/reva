@@ -63,17 +63,17 @@ func (p *proxy) registerRoutes() {
 	p.router.HandleFunc("/remote.php/dav/files/{username}/{path:.*}", p.tokenAuth(p.move)).Methods("MOVE")
 
 	// user-relative routes
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.get)).Methods("GET")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.put)).Methods("PUT")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.options)).Methods("OPTIONS")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.lock)).Methods("LOCK")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.unlock)).Methods("UNLOCK")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.head)).Methods("HEAD")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.mkcol)).Methods("MKCOL")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.proppatch)).Methods("PROPPATCH")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.propfind)).Methods("PROPFIND")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.delete)).Methods("DELETE")
-	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.oauthAuth(p.move)).Methods("MOVE")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.get)).Methods("GET")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.put)).Methods("PUT")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.options)).Methods("OPTIONS")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.lock)).Methods("LOCK")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.unlock)).Methods("UNLOCK")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.head)).Methods("HEAD")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.mkcol)).Methods("MKCOL")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.proppatch)).Methods("PROPPATCH")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.propfind)).Methods("PROPFIND")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.delete)).Methods("DELETE")
+	p.router.HandleFunc("/remote.php/webdav{path:.*}", p.tokenAuth(p.move)).Methods("MOVE")
 
 	// favorites routes
 	p.router.HandleFunc("/remote.php/dav/files/{username}/{path:.*}", p.tokenAuth(p.getFav)).Methods("REPORT")

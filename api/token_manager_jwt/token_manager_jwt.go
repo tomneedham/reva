@@ -86,6 +86,7 @@ func (tm *tokenManager) DismantleOauthToken(ctx context.Context, token string) (
 	l := ctx_zap.Extract(ctx)
 	l.Error("RECEIVED TOKEN", zap.String("token", token))
 
+	//TODO
 	user := &api.User{
 		AccountId: "user0",
 	}
