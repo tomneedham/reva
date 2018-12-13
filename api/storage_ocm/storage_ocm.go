@@ -108,8 +108,8 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 
 	osFileInfo, err := dav.Stat(ocmPath.FileTarget)
 	if err != nil {
-		if os.IsNotExist(err) {
-			fs.logger.Error("IS NOT EXIST", zap.String("NAME", name))
+		if strings.Contains(err.Error(), "404 Not Found") {
+			fs.logger.Error("NOT EXIST", zap.String("NAME", name))
 			return nil, api.NewError(api.StorageNotFoundErrorCode).WithMessage(err.Error())
 		}
 		fs.logger.Error("CANNOT STAT", zap.String("NAME", name))
