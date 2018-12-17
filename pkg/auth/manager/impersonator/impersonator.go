@@ -9,7 +9,7 @@ import (
 type mgr struct{}
 
 // New returns an auth manager implementation that allows to authenticate with any credentials.
-func New() auth.AuthManager {
+func New() auth.Manager {
 	return &mgr{}
 }
 

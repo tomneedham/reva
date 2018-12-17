@@ -19,7 +19,7 @@ type mgr struct {
 }
 
 // New returns an auth manager implementation that connects to a LDAP server to validate the user.
-func New(hostname string, port int, baseDN, filter, bindUsername, bindPassword string) auth.AuthManager {
+func New(hostname string, port int, baseDN, filter, bindUsername, bindPassword string) auth.Manager {
 	return &mgr{
 		hostname:     hostname,
 		port:         port,

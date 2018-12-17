@@ -15,9 +15,9 @@ import (
 
 	"golang.org/x/crypto/ssh/terminal"
 
-	"github.com/cernbox/cs3apis/gen/proto/go/cs3/auth/v1"
-	"github.com/cernbox/cs3apis/gen/proto/go/cs3/rpc"
-	"github.com/cernbox/cs3apis/gen/proto/go/cs3/storage/v1"
+	"github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
+	"github.com/cernbox/go-cs3apis/cs3/rpc"
+	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
 	"google.golang.org/grpc"
 
 	"github.com/pkg/errors"
@@ -242,7 +242,7 @@ func authenticate(username, password string) (string, error) {
 		return "", err
 	}
 
-	req := &authv1pb.GenerateAccessTokenRequest{
+	req := &authv0alphapb.GenerateAccessTokenRequest{
 		Username: username,
 		Password: password,
 	}
@@ -259,33 +259,33 @@ func authenticate(username, password string) (string, error) {
 	return res.AccessToken, nil
 }
 
-func getStorageClient() (storagev1pb.StorageServiceClient, error) {
+func getStorageProviderClient() (storageproviderv0alphapb.StorageProviderServiceClient, error) {
 	conn, err := getConn()
 	if err != nil {
 		return nil, err
 	}
-	return storagev1pb.NewStorageServiceClient(conn), nil
+	return storageproviderv0alphapb.NewStorageProviderServiceClient(conn), nil
 }
 
-func getAuthClient() (authv1pb.AuthServiceClient, error) {
+func getAuthClient() (authv0alphapb.AuthServiceClient, error) {
 	conn, err := getConn()
 	if err != nil {
 		return nil, err
 	}
-	return authv1pb.NewAuthServiceClient(conn), nil
+	return authv0alphapb.NewAuthServiceClient(conn), nil
 }
 
 func getConn() (*grpc.ClientConn, error) {
 	return grpc.Dial(REVA_SERVER, grpc.WithInsecure())
 }
 
-func list(fn string) ([]*storagev1pb.Metadata, error) {
-	client, err := getStorageClient()
+func list(fn string) ([]*storageproviderv0alphapb.Metadata, error) {
+	client, err := getStorageProviderClient()
 	if err != nil {
 		return nil, err
 	}
 
-	req := &storagev1pb.ListRequest{
+	req := &storageproviderv0alphapb.ListRequest{
 		Filename: fn,
 	}
 
@@ -295,7 +295,7 @@ func list(fn string) ([]*storagev1pb.Metadata, error) {
 		return nil, err
 	}
 
-	mds := []*storagev1pb.Metadata{}
+	mds := []*storageproviderv0alphapb.Metadata{}
 	for {
 		res, err := stream.Recv()
 		if err == io.EOF {
@@ -312,13 +312,13 @@ func list(fn string) ([]*storagev1pb.Metadata, error) {
 	return mds, nil
 }
 
-func whoami(token string) (*authv1pb.User, error) {
+func whoami(token string) (*authv0alphapb.User, error) {
 	client, err := getAuthClient()
 	if err != nil {
 		return nil, err
 	}
 
-	req := &authv1pb.WhoAmIRequest{AccessToken: token}
+	req := &authv0alphapb.WhoAmIRequest{AccessToken: token}
 
 	ctx := context.Background()
 	res, err := client.WhoAmI(ctx, req)

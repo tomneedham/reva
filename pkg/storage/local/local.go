@@ -13,10 +13,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+type Options struct {
+	Root string
+}
+
 // New returns an implementation to of the storage.FS interface that talk to
 // a local filesystem.
-func New(root string) storage.FS {
-	return &localFS{root: root}
+func New(opts *Options) storage.FS {
+	return &localFS{root: opts.Root}
 }
 
 func (fs *localFS) addRoot(p string) string {

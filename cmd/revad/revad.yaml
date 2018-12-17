@@ -1,0 +1,22 @@
+---
+# Configuration reference for revad
+server:
+  bind: 0.0.0.0
+  port: 9001
+  
+# Configuration for the AuthService
+authsvc:
+  manager: demo
+  
+# Configuration for the StorageProviderService
+storageprovidersvc:
+  driver: localfs
+  options:
+    root: "/data/"
+
+
+# Configuration for the StorageBrokerService
+storagebrokerservice:
+  driver: demo
+  options:
+    providers: ["localhost:9001"]
