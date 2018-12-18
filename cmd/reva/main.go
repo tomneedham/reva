@@ -98,9 +98,13 @@ func main() {
 	}
 
 	if mkdirCommand.Parsed() {
-		fmt.Println("mkdir")
-		os.Exit(1)
+		err := mkdir("/test")
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)
+		}
 	}
+
 	if fsCommand.Parsed() {
 		fmt.Println("fs magic")
 		os.Exit(1)
@@ -254,7 +258,7 @@ func authenticate(username, password string) (string, error) {
 	}
 
 	if res.Status.Code != rpcpb.Code_CODE_OK {
-		return "", apiError(res.Status)
+		return "", formatError(res.Status)
 	}
 	return res.AccessToken, nil
 }
@@ -277,6 +281,26 @@ func getAuthClient() (authv0alphapb.AuthServiceClient, error) {
 
 func getConn() (*grpc.ClientConn, error) {
 	return grpc.Dial(REVA_SERVER, grpc.WithInsecure())
+}
+
+func mkdir(fn string) error {
+	ctx := context.Background()
+	client, err := getStorageProviderClient()
+	if err != nil {
+		return err
+	}
+
+	req := &storageproviderv0alphapb.CreateDirectoryRequest{Filename: fn}
+	res, err := client.CreateDirectory(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	if res.Status.Code != rpcpb.Code_CODE_OK {
+		return formatError(res.Status)
+	}
+
+	return nil
 }
 
 func list(fn string) ([]*storageproviderv0alphapb.Metadata, error) {
@@ -305,7 +329,7 @@ func list(fn string) ([]*storageproviderv0alphapb.Metadata, error) {
 			return nil, err
 		}
 		if res.Status.Code != rpcpb.Code_CODE_OK {
-			return nil, apiError(res.Status)
+			return nil, formatError(res.Status)
 		}
 		mds = append(mds, res.Metadata)
 	}
@@ -327,12 +351,12 @@ func whoami(token string) (*authv0alphapb.User, error) {
 	}
 
 	if res.Status.Code != rpcpb.Code_CODE_OK {
-		return nil, apiError(res.Status)
+		return nil, formatError(res.Status)
 	}
 
 	return res.User, nil
 }
 
-func apiError(status *rpcpb.Status) error {
+func formatError(status *rpcpb.Status) error {
 	return errors.New(fmt.Sprintf("apierror: code=%v msg=%s", status.Code, status.Message))
 }

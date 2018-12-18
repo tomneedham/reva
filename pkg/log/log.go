@@ -7,6 +7,8 @@ import (
 	golog "log"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strings"
 )
 
 var nop = &nopLogger{}
@@ -22,6 +24,7 @@ type logger interface {
 	Println(ctx context.Context, args ...interface{})
 	Printf(ctx context.Context, format string, v ...interface{})
 	Error(ctx context.Context, err error)
+	Panic(ctx context.Context, reason string)
 }
 
 func ListRegisteredPackages() []string {
@@ -80,6 +83,11 @@ func (l *Logger) Error(ctx context.Context, err error) {
 	internalLogger.Error(ctx, err)
 }
 
+func (l *Logger) Panic(ctx context.Context, reason string) {
+	internalLogger := findEnabledLogger(l.prefix)
+	internalLogger.Panic(ctx, reason)
+}
+
 type internalLogger struct {
 	prefix    string
 	stdLogger *golog.Logger
@@ -98,10 +106,6 @@ func (l *internalLogger) getCaller() (string, int) {
 	}
 
 	return file, line
-}
-
-func (l *internalLogger) write(msg string) {
-	l.stdLogger.Println(msg)
 }
 
 func (l *internalLogger) Println(ctx context.Context, args ...interface{}) {
@@ -125,6 +129,15 @@ func (l *internalLogger) Error(ctx context.Context, err error) {
 	l.stdLogger.Println(msg)
 }
 
+func (l *internalLogger) Panic(ctx context.Context, reason string) {
+	file, line := l.getCaller()
+	trace := l.extractTrace(ctx)
+	stack := debug.Stack()
+	stackString := strings.Replace(string(stack), "\n", "\\n", -1)
+	msg := fmt.Sprintf("%s:%d [%s] [panic] %s: %s", file, line, trace, reason, stackString)
+	l.stdLogger.Println(msg)
+}
+
 func (l *internalLogger) extractTrace(ctx context.Context) string {
 	if v, ok := ctx.Value("trace").(string); ok {
 		return v
@@ -137,3 +150,4 @@ type nopLogger struct{}
 func (l *nopLogger) Println(ctx context.Context, args ...interface{})            {}
 func (l *nopLogger) Printf(ctx context.Context, format string, v ...interface{}) {}
 func (l *nopLogger) Error(ctx context.Context, err error)                        {}
+func (l *nopLogger) Panic(ctx context.Context, reason string)                    {}

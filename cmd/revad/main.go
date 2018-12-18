@@ -20,6 +20,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 var (
@@ -68,14 +69,15 @@ func main() {
 	opts := []grpc.ServerOption{
 		grpc.UnaryInterceptor(
 			grpc_middleware.ChainUnaryServer(
-				grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryFunc)),
+				interceptors.TraceUnaryServerInterceptor(),
+				interceptors.LogUnaryServerInterceptor(),
 				grpc_prometheus.UnaryServerInterceptor,
-				interceptors.TraceUnaryServerInterceptor())),
+				grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryFunc)))),
 		grpc.StreamInterceptor(
 			grpc_middleware.ChainStreamServer(
-				grpc_recovery.StreamServerInterceptor(recoveryFunc),
+				interceptors.TraceStreamServerInterceptor(),
 				grpc_prometheus.StreamServerInterceptor,
-				interceptors.TraceStreamServerInterceptor())),
+				grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryFunc)))),
 	}
 	server := grpc.NewServer(opts...)
 
@@ -106,6 +108,8 @@ func main() {
 	server.Serve(lis)
 
 }
+
 func recoveryFunc(ctx context.Context, p interface{}) (err error) {
-	return nil
+	logger.Panic(ctx, fmt.Sprintf("%+v", p))
+	return grpc.Errorf(codes.Internal, "%s", p)
 }

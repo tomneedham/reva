@@ -3,6 +3,7 @@ package storageprovidersvc
 import (
 	//"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -31,12 +32,20 @@ type service struct {
 }
 
 func getFS(cfg *config.Config) storage.FS {
+	optsJson, err := json.Marshal(cfg.StorageProviderSVC.Options)
+	if err != nil {
+		panic(err)
+	}
+
 	switch cfg.StorageProviderSVC.Driver {
 	case "local":
-		opts := cfg.StorageProviderSVC.Options.(*local.Options)
+		opts := &local.Options{}
+		if err := json.Unmarshal(optsJson, opts); err != nil {
+			panic(err)
+		}
 		return local.New(opts)
 	default:
-		return nil
+		panic("fs not found: " + cfg.StorageProviderSVC.Driver)
 	}
 }
 
@@ -58,6 +67,7 @@ func New(cfg *config.Config) storageproviderv0alphapb.StorageProviderServiceServ
 }
 
 func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alphapb.CreateDirectoryRequest) (*storageproviderv0alphapb.CreateDirectoryResponse, error) {
+	logger.Println(ctx, "CreateDirectory", req)
 	fn := req.GetFilename()
 	if err := s.storage.CreateDir(ctx, fn); err != nil {
 		err := errors.Wrap(err, "storageprovidersvc: error creating folder "+fn)
@@ -69,6 +79,7 @@ func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alp
 
 	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
 	res := &storageproviderv0alphapb.CreateDirectoryResponse{Status: status}
+	logger.Println(ctx, "CreateDirectory", res)
 	return res, nil
 }
 
