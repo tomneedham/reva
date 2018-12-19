@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cernbox/go-cs3apis/cs3/rpc"
 	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
@@ -67,6 +68,9 @@ func New(cfg *config.Config) storageproviderv0alphapb.StorageProviderServiceServ
 }
 
 func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alphapb.CreateDirectoryRequest) (*storageproviderv0alphapb.CreateDirectoryResponse, error) {
+	logger.Println(ctx, "Doing some job")
+	time.Sleep(8 * time.Second)
+	logger.Println(ctx, "Job finished")
 	logger.Println(ctx, "CreateDirectory", req)
 	fn := req.GetFilename()
 	if err := s.storage.CreateDir(ctx, fn); err != nil {

@@ -3,12 +3,11 @@ package log
 import (
 	"context"
 	"fmt"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"io"
 	golog "log"
 	"os"
-	"runtime"
-	"runtime/debug"
-	"strings"
 )
 
 var nop = &nopLogger{}
@@ -18,6 +17,7 @@ var Out io.Writer = os.Stderr
 
 type Logger struct {
 	prefix string
+	pid    int
 }
 
 type logger interface {
@@ -54,7 +54,13 @@ func Disable(prefix string) {
 func New(prefix string) *Logger {
 	// add whitespace to stdlogger prefix so it is not appended to the date
 	stdLogger := golog.New(Out, prefix+" ", golog.LstdFlags|golog.LUTC)
-	internalLogger := &internalLogger{prefix: prefix, stdLogger: stdLogger}
+	zapConfig := zap.NewProductionConfig()
+	zapConfig.Encoding = "console"
+	zapConfig.EncoderConfig = zap.NewProductionEncoderConfig()
+	zapConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	zapLogger, _ := zapConfig.Build(zap.AddCallerSkip(2))
+	zapLogger = zapLogger.Named(prefix)
+	internalLogger := &internalLogger{prefix: prefix, stdLogger: stdLogger, pid: os.Getpid(), zapLogger: zapLogger}
 	internalLoggers[prefix] = internalLogger
 	enabledLoggers[prefix] = internalLogger
 	logger := &Logger{prefix: prefix}
@@ -89,60 +95,36 @@ func (l *Logger) Panic(ctx context.Context, reason string) {
 }
 
 type internalLogger struct {
+	pid       int
 	prefix    string
 	stdLogger *golog.Logger
-}
-
-func (l *internalLogger) getCaller() (string, int) {
-	_, file, line, ok := runtime.Caller(3)
-	if !ok {
-		return "???", 0
-	}
-
-	for i := len(file) - 1; i > 0; i-- {
-		if file[i] == '/' {
-			return file[i+1:], line
-		}
-	}
-
-	return file, line
+	zapLogger *zap.Logger
 }
 
 func (l *internalLogger) Println(ctx context.Context, args ...interface{}) {
-	file, line := l.getCaller()
-	trace := l.extractTrace(ctx)
-	msg := fmt.Sprintf("%s:%d [%s] [info] %s", file, line, trace, fmt.Sprintln(args...))
-	l.stdLogger.Println(msg)
+	msg := fmt.Sprint(args...)
+	l.zapLogger.Info(msg, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
 }
 
 func (l *internalLogger) Printf(ctx context.Context, format string, v ...interface{}) {
-	file, line := l.getCaller()
-	trace := l.extractTrace(ctx)
-	msg := fmt.Sprintf("%s:%d [%s] [info] %s", file, line, trace, fmt.Sprintf(format, v...))
-	l.stdLogger.Println(msg)
+	msg := fmt.Sprintf(format, v...)
+	l.zapLogger.Info(msg, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
 }
 
 func (l *internalLogger) Error(ctx context.Context, err error) {
-	file, line := l.getCaller()
-	trace := l.extractTrace(ctx)
-	msg := fmt.Sprintf("%s:%d [%s] [error] %s", file, line, trace, err)
-	l.stdLogger.Println(msg)
+	msg := err.Error()
+	l.zapLogger.Info(msg, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
 }
 
 func (l *internalLogger) Panic(ctx context.Context, reason string) {
-	file, line := l.getCaller()
-	trace := l.extractTrace(ctx)
-	stack := debug.Stack()
-	stackString := strings.Replace(string(stack), "\n", "\\n", -1)
-	msg := fmt.Sprintf("%s:%d [%s] [panic] %s: %s", file, line, trace, reason, stackString)
-	l.stdLogger.Println(msg)
+	l.zapLogger.Error(reason, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
 }
 
 func (l *internalLogger) extractTrace(ctx context.Context) string {
 	if v, ok := ctx.Value("trace").(string); ok {
 		return v
 	}
-	return "trace-missing"
+	return "00000000-0000-0000-0000-000000000000"
 }
 
 type nopLogger struct{}
