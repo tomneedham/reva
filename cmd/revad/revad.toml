@@ -1,0 +1,29 @@
+[core]
+app_log = "/var/tmp/revad/app.log"
+max_cpus = 32
+
+[grpc]
+network = "tcp"
+address = "0.0.0.0:9999"
+access_log = "/var/log/revad/grpc-access.log"
+shutdown_deadline = 40
+tls_enabled = true
+tls_cert = "/etc/gridsecurity/host.cert"
+tls_key = "/etc/gridsecurity/host.key"
+enabled_services = ["storage_provider_svc"]
+
+[grpc.storage_provider_svc]
+driver = "local"
+
+[grpc.storageprovidersvc.eos]
+mgm = "root://nowhere.org"
+root_uid = 0
+root_gid = 0
+
+[grpc.storageprovidersvc.local]
+root = "/tmp"
+
+[prom]
+network = "tcp"
+address = "0.0.0.0:8080"
+path = "/metrics"

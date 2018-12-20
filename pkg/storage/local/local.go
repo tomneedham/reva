@@ -10,17 +10,30 @@ import (
 	"strings"
 
 	"github.com/cernbox/reva/pkg/storage"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 )
 
-type Options struct {
+type config struct {
 	Root string
+}
+
+func parseConfig(m map[string]interface{}) (*config, error) {
+	c := &config{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // New returns an implementation to of the storage.FS interface that talk to
 // a local filesystem.
-func New(opts *Options) storage.FS {
-	return &localFS{root: opts.Root}
+func New(m map[string]interface{}) (storage.FS, error) {
+	c, err := parseConfig(m)
+	if err != nil {
+		return nil, err
+	}
+	return &localFS{root: c.Root}, nil
 }
 
 func (fs *localFS) addRoot(p string) string {

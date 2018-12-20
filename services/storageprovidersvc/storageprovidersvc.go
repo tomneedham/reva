@@ -3,7 +3,6 @@ package storageprovidersvc
 import (
 	//"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,56 +14,75 @@ import (
 
 	"github.com/cernbox/go-cs3apis/cs3/rpc"
 	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
-	"github.com/cernbox/reva/pkg/config"
 	"github.com/cernbox/reva/pkg/log"
 	"github.com/cernbox/reva/pkg/storage"
 	"github.com/cernbox/reva/pkg/storage/local"
 
+	"github.com/cernbox/reva/pkg/err"
 	"github.com/gofrs/uuid"
-	"github.com/pkg/errors"
+	"github.com/mitchellh/mapstructure"
 	"golang.org/x/net/context"
 )
 
 var logger = log.New("storageprovidersvc")
+var errors = err.New("storageprovidersvc")
+
+type config struct {
+	Driver    string                 `mapstructure:"driver"`
+	TmpFolder string                 `mapstructure:"tmp_folder"`
+	EOS       map[string]interface{} `mapstructure:"eos"`
+	S3        map[string]interface{} `mapstructure:"s3"`
+	Local     map[string]interface{} `mapstructure:"local"`
+}
 
 type service struct {
 	storage   storage.FS
 	tmpFolder string
 }
 
-func getFS(cfg *config.Config) storage.FS {
-	optsJson, err := json.Marshal(cfg.StorageProviderSVC.Options)
-	if err != nil {
-		panic(err)
+func parseConfig(m map[string]interface{}) (*config, error) {
+	c := &config{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
 	}
+	return c, nil
+}
 
-	switch cfg.StorageProviderSVC.Driver {
+func getFS(c *config) (storage.FS, error) {
+	switch c.Driver {
 	case "local":
-		opts := &local.Options{}
-		if err := json.Unmarshal(optsJson, opts); err != nil {
-			panic(err)
-		}
-		return local.New(opts)
+		return local.New(c.Local)
+	case "":
+		return nil, fmt.Errorf("driver is empty")
 	default:
-		panic("fs not found: " + cfg.StorageProviderSVC.Driver)
+		return nil, fmt.Errorf("driver not found: %s", c.Driver)
 	}
 }
 
-func New(cfg *config.Config) storageproviderv0alphapb.StorageProviderServiceServer {
+func New(m map[string]interface{}) (storageproviderv0alphapb.StorageProviderServiceServer, error) {
 
-	s := getFS(cfg)
+	c, err := parseConfig(m)
+	if err != nil {
+		return nil, errors.Wrap(err, "storageprovidersvc: unable to parse config")
+	}
+
 	// use os temporary folder if empty
-	tmpFolder := cfg.StorageProviderSVC.TemporaryFolder
+	tmpFolder := c.TmpFolder
 	if tmpFolder == "" {
 		tmpFolder = os.TempDir()
 	}
 
+	fs, err := getFS(c)
+	if err != nil {
+		return nil, errors.Wrap(err, "storageprovidersvc: unable to obtain a filesystem")
+	}
+
 	service := &service{
-		storage:   s,
+		storage:   fs,
 		tmpFolder: tmpFolder,
 	}
 
-	return service
+	return service, nil
 }
 
 func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alphapb.CreateDirectoryRequest) (*storageproviderv0alphapb.CreateDirectoryResponse, error) {
