@@ -10,9 +10,10 @@ type manager struct {
 	credentials map[string]string
 }
 
-func New() auth.Manager {
+func New(m map[string]interface{}) (auth.Manager, error) {
+	// m not used
 	creds := getCredentials()
-	return &manager{credentials: creds}
+	return &manager{credentials: creds}, nil
 }
 
 func (m *manager) Authenticate(ctx context.Context, clientID, clientSecret string) error {

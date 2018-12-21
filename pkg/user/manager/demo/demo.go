@@ -10,9 +10,9 @@ type manager struct {
 	catalog map[string]*user.User
 }
 
-func New() user.Manager {
+func New(m map[string]interface{}) (user.Manager, error) {
 	cat := getUsers()
-	return &manager{catalog: cat}
+	return &manager{catalog: cat}, nil
 }
 
 func (m *manager) GetUser(ctx context.Context, username string) (*user.User, error) {

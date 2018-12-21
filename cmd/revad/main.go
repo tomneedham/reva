@@ -8,7 +8,8 @@ import (
 	//	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"net" //"net/http"
+	"net"
+	//"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -32,7 +33,7 @@ var (
 
 func main() {
 	logger.Println(ctx, "init: REVA started")
-	logger.Println(ctx, "logging enabled for packages:", log.ListEnabledPackages())
+	logger.Println(ctx, "logging enabled for the following packages ", log.ListEnabledPackages())
 	checkFlags()
 	readConfig()
 	grpcSvr := getGRPCServer()

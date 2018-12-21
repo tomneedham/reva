@@ -1,26 +1,40 @@
 [core]
 app_log = "/var/tmp/revad/app.log"
 max_cpus = 32
+shutdown_deadline = 40
 
 [grpc]
 network = "tcp"
 address = "0.0.0.0:9999"
 access_log = "/var/log/revad/grpc-access.log"
-shutdown_deadline = 40
 tls_enabled = true
 tls_cert = "/etc/gridsecurity/host.cert"
 tls_key = "/etc/gridsecurity/host.key"
-enabled_services = ["storage_provider_svc"]
+enabled_services = ["storage_provider_svc", "auth_svc"]
+
+[http]
+enabled_services = ["prometheus", "webui"]
+network = "tcp"
+address = "0.0.0.0:9998"
 
 [grpc.storage_provider_svc]
 driver = "local"
 
-[grpc.storageprovidersvc.eos]
+[grpc.auth_svc.auth_manager]
+driver = "demo"
+
+[grpc.auth_svc.token_manager]
+driver = "jwt"
+
+[grpc.auth_svc.user_manager]
+driver = "demo"
+
+[grpc.storage_provider_svc.eos]
 mgm = "root://nowhere.org"
 root_uid = 0
 root_gid = 0
 
-[grpc.storageprovidersvc.local]
+[grpc.storage_provider_svc.local]
 root = "/tmp"
 
 [prom]

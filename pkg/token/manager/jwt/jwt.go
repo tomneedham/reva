@@ -6,12 +6,29 @@ import (
 	"github.com/cernbox/reva/pkg/token"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 )
 
+type config struct {
+	Secret string `mapstructure:"secret"`
+}
+
+func parseConfig(m map[string]interface{}) (*config, error) {
+	c := &config{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // New returns an implementation of the token manager that uses JWT as tokens.
-func New(secret string) token.Manager {
-	return &manager{secret: secret}
+func New(m map[string]interface{}) (token.Manager, error) {
+	c, err := parseConfig(m)
+	if err != nil {
+		return nil, err
+	}
+	return &manager{secret: c.Secret}, nil
 }
 
 type manager struct {

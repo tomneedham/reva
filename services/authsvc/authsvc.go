@@ -1,26 +1,146 @@
-package authservice
+package authsvc
 
 import (
 	"context"
 
-	"github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
-	"github.com/cernbox/go-cs3apis/cs3/rpc"
 	"github.com/cernbox/reva/pkg/auth"
+	"github.com/cernbox/reva/pkg/auth/manager/demo"
+	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
 	"github.com/cernbox/reva/pkg/token"
+	"github.com/cernbox/reva/pkg/token/manager/jwt"
 	"github.com/cernbox/reva/pkg/user"
+	usrmgrdemo "github.com/cernbox/reva/pkg/user/manager/demo"
 
-	"github.com/pkg/errors"
+	"github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
+	"github.com/cernbox/go-cs3apis/cs3/rpc"
+
+	"github.com/mitchellh/mapstructure"
 )
 
-var logger = log.New("authservice")
+var logger = log.New("authsvc")
+var errors = err.New("authsvc")
+var ctx = context.Background()
 
-func New(authmgr auth.Manager, tokenmgr token.Manager, usermgr user.Manager) authv0alphapb.AuthServiceServer {
-	return &service{
-		authmgr:  authmgr,
-		tokenmgr: tokenmgr,
-		usermgr:  usermgr,
+type config struct {
+	AuthManager  map[string]interface{} `mapstructure:"auth_manager"`
+	TokenManager map[string]interface{} `mapstructure:"token_manager"`
+	UserManager  map[string]interface{} `mapstructure:"user_manager"`
+}
+
+type authManagerConfig struct {
+	Driver string                 `mapstructure:"driver"`
+	Demo   map[string]interface{} `mapstructure:"demo"`
+	LDAP   map[string]interface{} `mapstructure:"ldap"`
+}
+
+type tokenManagerConfig struct {
+	Driver string                 `mapstructure:"driver"`
+	JWT    map[string]interface{} `mapstructure:"jwt"`
+}
+
+type userManagerConfig struct {
+	Driver string                 `mapstructure:"driver"`
+	Demo   map[string]interface{} `mapstructure:"demo"`
+}
+
+func parseConfig(m map[string]interface{}) (*config, error) {
+	logger.Println(ctx, m)
+	c := &config{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
 	}
+	return c, nil
+
+}
+
+func getUserManager(m map[string]interface{}) (user.Manager, error) {
+	c := &userManagerConfig{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
+	}
+
+	switch c.Driver {
+	case "demo":
+		mgr, err := usrmgrdemo.New(c.Demo)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to create demo user manager")
+		}
+		return mgr, nil
+	case "":
+		return nil, errors.Errorf("driver for user manager is empty")
+
+	default:
+		return nil, errors.Errorf("driver %s not found for user manager", c.Driver)
+	}
+}
+
+func getAuthManager(m map[string]interface{}) (auth.Manager, error) {
+	c := &authManagerConfig{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
+	}
+
+	switch c.Driver {
+	case "demo":
+		mgr, err := demo.New(c.Demo)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to create demo auth manager")
+		}
+		return mgr, nil
+	case "":
+		return nil, errors.Errorf("driver for auth manager is empty")
+
+	default:
+		return nil, errors.Errorf("driver %s not found for auth manager", c.Driver)
+	}
+}
+
+func getTokenManager(m map[string]interface{}) (token.Manager, error) {
+	c := &tokenManagerConfig{}
+	if err := mapstructure.Decode(m, c); err != nil {
+		return nil, err
+	}
+
+	switch c.Driver {
+	case "jwt":
+		mgr, err := jwt.New(c.JWT)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to create jwt token manager")
+		}
+		return mgr, nil
+	case "":
+		return nil, errors.Errorf("driver for token manager is empty")
+
+	default:
+		return nil, errors.Errorf("driver %s not found for token manager", c.Driver)
+	}
+}
+
+func New(m map[string]interface{}) (authv0alphapb.AuthServiceServer, error) {
+	c, err := parseConfig(m)
+	if err != nil {
+		return nil, err
+	}
+
+	authManager, err := getAuthManager(c.AuthManager)
+	if err != nil {
+		return nil, err
+	}
+
+	tokenManager, err := getTokenManager(c.TokenManager)
+	if err != nil {
+		return nil, err
+	}
+
+	userManager, err := getUserManager(c.UserManager)
+	if err != nil {
+		return nil, err
+	}
+
+	svc := &service{authmgr: authManager, tokenmgr: tokenManager, usermgr: userManager}
+	return svc, nil
+
 }
 
 type service struct {

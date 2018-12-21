@@ -1,7 +1,6 @@
 package storageprovidersvc
 
 import (
-	//"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -12,13 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cernbox/go-cs3apis/cs3/rpc"
-	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
+	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
 	"github.com/cernbox/reva/pkg/storage"
 	"github.com/cernbox/reva/pkg/storage/local"
 
-	"github.com/cernbox/reva/pkg/err"
+	"github.com/cernbox/go-cs3apis/cs3/rpc"
+	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
+
 	"github.com/gofrs/uuid"
 	"github.com/mitchellh/mapstructure"
 	"golang.org/x/net/context"

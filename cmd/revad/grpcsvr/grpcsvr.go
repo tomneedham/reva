@@ -7,9 +7,11 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
 	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
 	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
+	"github.com/cernbox/reva/services/authsvc"
 	"github.com/cernbox/reva/services/interceptors"
 	"github.com/cernbox/reva/services/storageprovidersvc"
 	"github.com/grpc-ecosystem/go-grpc-middleware"
@@ -33,6 +35,7 @@ type config struct {
 	ShutdownDeadline   int                    `mapstructure:"shutdown_deadline"`
 	EnabledServices    []string               `mapstructure:"enabled_services"`
 	StorageProviderSvc map[string]interface{} `mapstructure:"storage_provider_svc"`
+	AuthSvc            map[string]interface{} `mapstructure:"auth_svc"`
 }
 
 type Server struct {
@@ -94,7 +97,7 @@ func (s *Server) GracefulStop() error {
 }
 
 func (s *Server) registerServices() error {
-	var count int
+	enabled := []string{}
 	for _, k := range s.conf.EnabledServices {
 		switch k {
 		case "storage_provider_svc":
@@ -104,11 +107,21 @@ func (s *Server) registerServices() error {
 			}
 			storageproviderv0alphapb.RegisterStorageProviderServiceServer(s.s, svc)
 			logger.Printf(ctx, "service %s registered", k)
-			count++
+			enabled = append(enabled, k)
+		case "auth_svc":
+			svc, err := authsvc.New(s.conf.AuthSvc)
+			if err != nil {
+				return errors.Wrap(err, "unable to register service "+k)
+			}
+			authv0alphapb.RegisterAuthServiceServer(s.s, svc)
+			logger.Printf(ctx, "service %s registered", k)
+			enabled = append(enabled, k)
 		}
 	}
-	if count == 0 {
+	if len(enabled) == 0 {
 		logger.Println(ctx, "no services enabled")
+	} else {
+		logger.Println(ctx, "grpc enabled for the following services ", enabled)
 	}
 	return nil
 }
