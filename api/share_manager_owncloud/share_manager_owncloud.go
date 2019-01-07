@@ -534,7 +534,7 @@ func (sm *shareManager) AddShare(ctx context.Context, shareType int, p string, r
 	if shareType == 4 {
 		//THIS IS AN OCM SHARE
 		stmtString += ",ocm_eos_base_path=?"
-		stmtValues = append(stmtValues, md.EosFile[:strings.LastIndex(md.EosFile, targetPath)])
+		stmtValues = append(stmtValues, md.EosFile)
 	}
 
 	stmt, err := sm.db.Prepare(stmtString)
