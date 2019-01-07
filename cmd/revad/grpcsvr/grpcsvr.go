@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"syscall"
 
 	"github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
 	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
@@ -23,10 +21,9 @@ import (
 )
 
 var (
-	ctx      = context.Background()
-	logger   = log.New("grpcsvr")
-	errors   = err.New("grpcsvr")
-	graceful = os.Getenv("GRACEFUL") == "true"
+	ctx    = context.Background()
+	logger = log.New("grpcsvr")
+	errors = err.New("grpcsvr")
 )
 
 type config struct {
@@ -56,34 +53,21 @@ func New(m map[string]interface{}) (*Server, error) {
 	return &Server{s: s, conf: conf}, nil
 }
 
-func (s *Server) Listener() net.Listener {
-	return s.listener
-}
+func (s *Server) Start(ln net.Listener) error {
+	if err := s.registerServices(); err != nil {
+		err = errors.Wrap(err, "unable to register service")
+		return err
+	}
 
-func (s *Server) Start() chan error {
-	ch := make(chan error, 1)
-	go func() {
-		if err := s.registerServices(); err != nil {
-			err = errors.Wrap(err, "unable to register service")
-			ch <- err
-		}
+	s.listener = ln
 
-		ln, err := s.getListener()
-		if err != nil {
-			err = errors.Wrap(err, "unable to get net listener")
-			ch <- err
-		}
-		s.listener = ln
-
-		err = s.s.Serve(s.listener)
-		if err != nil {
-			err = errors.Wrap(err, "serve failed")
-			ch <- err
-		} else {
-			ch <- nil
-		}
-	}()
-	return ch
+	err := s.s.Serve(s.listener)
+	if err != nil {
+		err = errors.Wrap(err, "serve failed")
+		return err
+	} else {
+		return nil
+	}
 }
 
 func (s *Server) Stop() error {
@@ -94,6 +78,14 @@ func (s *Server) Stop() error {
 func (s *Server) GracefulStop() error {
 	s.s.GracefulStop()
 	return nil
+}
+
+func (s *Server) Network() string {
+	return s.conf.Network
+}
+
+func (s *Server) Address() string {
+	return s.conf.Address
 }
 
 func (s *Server) registerServices() error {
@@ -124,37 +116,6 @@ func (s *Server) registerServices() error {
 		logger.Println(ctx, "grpc enabled for the following services ", enabled)
 	}
 	return nil
-}
-
-func (s *Server) getListener() (net.Listener, error) {
-	parentPID := os.Getppid()
-	var ln net.Listener
-	if graceful {
-		logger.Println(ctx, "graceful restart, inheriting parent listener fd")
-		fd := os.NewFile(3, "") // 3 because ExtraFile passed to new process
-		l, err := net.FileListener(fd)
-		if err == nil {
-			// kill parent
-			logger.Printf(ctx, "killing parent pid gracefully with SIGQUIT: %d", parentPID)
-			syscall.Kill(parentPID, syscall.SIGQUIT)
-			ln = l
-		} else {
-			// continue to creating new fd
-			logger.Println(ctx, "error inheriting parent fd listener socket: ", err)
-		}
-	}
-
-	if ln == nil { // create new fd only if we are in a non-forked process or inheriting failed
-		network, addr := s.conf.Network, s.conf.Address
-		l, err := net.Listen(network, addr)
-		if err != nil {
-			return nil, err
-		}
-		ln = l
-
-	}
-
-	return ln, nil
 }
 
 func getOpts() []grpc.ServerOption {
