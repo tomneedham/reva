@@ -103,19 +103,31 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 	ocmPath := fs.getOCMPath(name)
 	fs.logger.Info("GETTING METADATA FROM WEBDAV SERVER", zap.String("name", name), zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
 
-	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
+	if ocmPath.FileTarget == "" {
+		fs.logger.Error("PROVIDING FAKE INFO", zap.String("NAME", name))
+		fi := &api.Metadata{}
+		fi.IsDir = true
+		fi.Path = path.Join("/", name)
+		fi.Size = 0
+		fi.Id = fi.Path
+		fi.Etag = fmt.Sprintf("%d", 0)
+		fi.IsOcm = true
+		return fi, nil
+	} else {
+		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
 
-	osFileInfo, err := dav.Stat(ocmPath.FileTarget)
-	if err != nil {
-		if strings.Contains(err.Error(), "404 Not Found") {
-			fs.logger.Error("NOT EXIST", zap.String("NAME", name))
-			return nil, api.NewError(api.StorageNotFoundErrorCode).WithMessage(err.Error())
+		osFileInfo, err := dav.Stat(ocmPath.FileTarget)
+		if err != nil {
+			if strings.Contains(err.Error(), "404 Not Found") {
+				fs.logger.Error("NOT EXIST", zap.String("NAME", name))
+				return nil, api.NewError(api.StorageNotFoundErrorCode).WithMessage(err.Error())
+			}
+			fs.logger.Error("CANNOT STAT", zap.String("NAME", name))
+			return nil, err
 		}
-		fs.logger.Error("CANNOT STAT", zap.String("NAME", name))
-		return nil, err
+		return fs.convertToFileInfoWithNamespace(osFileInfo, name), nil
 	}
-	return fs.convertToFileInfoWithNamespace(osFileInfo, name), nil
 }
 
 func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Metadata, error) {
