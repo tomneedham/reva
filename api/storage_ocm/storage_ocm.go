@@ -103,8 +103,8 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 	ocmPath := fs.getOCMPath(name)
 	fs.logger.Info("GETTING METADATA FROM WEBDAV SERVER", zap.String("name", name), zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
 
-	if ocmPath.FileTarget == "" {
-		fs.logger.Error("PROVIDING FAKE INFO", zap.String("NAME", name))
+	if ocmPath.FileTarget == "/" {
+		fs.logger.Info("PROVIDING FAKE INFO", zap.String("NAME", name))
 		fi := &api.Metadata{}
 		fi.IsDir = true
 		fi.Path = path.Join("/", name)
@@ -219,9 +219,15 @@ func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
 	path := strings.Replace(originalPath, "/https:/", "https://", 1)
 	values := strings.Split(path, ";")
 
+	fileTarget := values[2]
+
+	if fileTarget == "" {
+		fileTarget = "/"
+	}
+
 	return &ocmPath{
 		WebdavURL:  values[0],
 		Token:      values[1],
-		FileTarget: values[2],
+		FileTarget: fileTarget,
 	}
 }
