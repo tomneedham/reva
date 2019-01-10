@@ -221,13 +221,23 @@ func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
 
 	fileTarget := values[2]
 
-	if fileTarget == "" {
+	fileValues := strings.FieldsFunc(fileTarget, getSplitFunc('/'))
+
+	if len(fileValues) == 0 {
 		fileTarget = "/"
+	} else {
+		fileTarget = "/" + strings.Join(fileValues[1:len(fileValues)], "/")
 	}
 
 	return &ocmPath{
 		WebdavURL:  values[0],
 		Token:      values[1],
 		FileTarget: fileTarget,
+	}
+}
+
+func getSplitFunc(separator rune) func(rune) bool {
+	return func(c rune) bool {
+		return c == separator
 	}
 }
