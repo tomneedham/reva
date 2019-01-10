@@ -67,43 +67,43 @@ func (fs *localStorage) GetQuota(ctx context.Context, name string) (int, int, er
 func (fs *localStorage) CreateDir(ctx context.Context, name string) error {
 
 	ocmPath := fs.getOCMPath(name)
-	fs.logger.Info("CREATE DIR FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+	fs.logger.Info("CREATE DIR FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("OriginalFileTarget", ocmPath.OriginalFileTarget), zap.String("ConvertedlFileTarget", ocmPath.ConvertedFileTarget))
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
 
-	return dav.Mkdir(ocmPath.FileTarget, 0644)
+	return dav.Mkdir(ocmPath.ConvertedFileTarget, 0644)
 }
 
 func (fs *localStorage) Delete(ctx context.Context, name string) error {
 
 	ocmPath := fs.getOCMPath(name)
-	fs.logger.Info("DELETE FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+	fs.logger.Info("DELETE FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("OriginalFileTarget", ocmPath.OriginalFileTarget), zap.String("ConvertedlFileTarget", ocmPath.ConvertedFileTarget))
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
 
-	return dav.Remove(ocmPath.FileTarget)
+	return dav.Remove(ocmPath.ConvertedFileTarget)
 }
 
 func (fs *localStorage) Move(ctx context.Context, oldName, newName string) error {
 
 	oldPath := fs.getOCMPath(oldName)
 	newPath := fs.getOCMPath(newName)
-	fs.logger.Info("MOVE FROM WEBDAV SERVER", zap.String("WebdavURL", oldPath.WebdavURL), zap.String("Token", oldPath.Token), zap.String("oldFileTarget", oldPath.FileTarget), zap.String("newFileTarget", newPath.FileTarget))
+	fs.logger.Info("MOVE FROM WEBDAV SERVER", zap.String("WebdavURL", oldPath.WebdavURL), zap.String("Token", oldPath.Token), zap.String("oldConvertedFileTarget", oldPath.ConvertedFileTarget), zap.String("newConvertedFileTarget", newPath.ConvertedFileTarget))
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient(oldPath.WebdavURL, oldPath.Token, oldPath.Token)
 
-	return dav.Rename(oldPath.FileTarget, newPath.FileTarget, true)
+	return dav.Rename(oldPath.ConvertedFileTarget, newPath.ConvertedFileTarget, true)
 }
 
 func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Metadata, error) {
 
 	ocmPath := fs.getOCMPath(name)
-	fs.logger.Info("GETTING METADATA FROM WEBDAV SERVER", zap.String("name", name), zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+	fs.logger.Info("GETTING METADATA FROM WEBDAV SERVER", zap.String("name", name), zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("OriginalFileTarget", ocmPath.OriginalFileTarget), zap.String("ConvertedlFileTarget", ocmPath.ConvertedFileTarget))
 
-	if ocmPath.FileTarget == "/" {
+	if ocmPath.ConvertedFileTarget == "/" {
 		fs.logger.Info("PROVIDING FAKE INFO", zap.String("NAME", name))
 		fi := &api.Metadata{}
 		fi.IsDir = true
@@ -117,7 +117,7 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
 
-		osFileInfo, err := dav.Stat(ocmPath.FileTarget)
+		osFileInfo, err := dav.Stat(ocmPath.ConvertedFileTarget)
 		if err != nil {
 			if strings.Contains(err.Error(), "404 Not Found") {
 				fs.logger.Error("NOT EXIST", zap.String("NAME", name))
@@ -133,12 +133,12 @@ func (fs *localStorage) GetMetadata(ctx context.Context, name string) (*api.Meta
 func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Metadata, error) {
 
 	ocmPath := fs.getOCMPath(name)
-	fs.logger.Info("LISTING FOLDER FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+	fs.logger.Info("LISTING FOLDER FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("OriginalFileTarget", ocmPath.OriginalFileTarget), zap.String("ConvertedlFileTarget", ocmPath.ConvertedFileTarget))
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
 
-	osFileInfos, err := dav.ReadDir(ocmPath.FileTarget)
+	osFileInfos, err := dav.ReadDir(ocmPath.ConvertedFileTarget)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fs.logger.Error("IS NOT EXIST", zap.String("NAME", name))
@@ -149,7 +149,7 @@ func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Met
 	}
 	finfos := []*api.Metadata{}
 	for _, osFileInfo := range osFileInfos {
-		finfos = append(finfos, fs.convertToFileInfoWithNamespace(osFileInfo, path.Join(ocmPath.FileTarget, osFileInfo.Name())))
+		finfos = append(finfos, fs.convertToFileInfoWithNamespace(osFileInfo, path.Join(ocmPath.OriginalFileTarget, osFileInfo.Name())))
 	}
 	return finfos, nil
 }
@@ -157,23 +157,23 @@ func (fs *localStorage) ListFolder(ctx context.Context, name string) ([]*api.Met
 func (fs *localStorage) Upload(ctx context.Context, name string, r io.ReadCloser) error {
 
 	ocmPath := fs.getOCMPath(name)
-	fs.logger.Info("UPLOAD FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+	fs.logger.Info("UPLOAD FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("OriginalFileTarget", ocmPath.OriginalFileTarget), zap.String("ConvertedlFileTarget", ocmPath.ConvertedFileTarget))
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
 
-	return dav.WriteStream(ocmPath.FileTarget, r, 0644)
+	return dav.WriteStream(ocmPath.ConvertedFileTarget, r, 0644)
 }
 
 func (fs *localStorage) Download(ctx context.Context, name string) (io.ReadCloser, error) {
 
 	ocmPath := fs.getOCMPath(name)
-	fs.logger.Info("DOWNLOAD FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("FileTarget", ocmPath.FileTarget))
+	fs.logger.Info("DOWNLOAD FROM WEBDAV SERVER", zap.String("WebdavURL", ocmPath.WebdavURL), zap.String("Token", ocmPath.Token), zap.String("OriginalFileTarget", ocmPath.OriginalFileTarget), zap.String("ConvertedlFileTarget", ocmPath.ConvertedFileTarget))
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	dav := gowebdav.NewClient(ocmPath.WebdavURL, ocmPath.Token, ocmPath.Token)
 
-	r, err := dav.ReadStream(ocmPath.FileTarget)
+	r, err := dav.ReadStream(ocmPath.ConvertedFileTarget)
 	if err != nil {
 		if os.IsNotExist(err) {
 			fs.logger.Error("IS NOT EXIST", zap.String("NAME", name))
@@ -209,9 +209,10 @@ func (fs *localStorage) RestoreRecycleEntry(ctx context.Context, restoreKey stri
 }
 
 type ocmPath struct {
-	WebdavURL  string
-	Token      string
-	FileTarget string
+	WebdavURL           string
+	Token               string
+	OriginalFileTarget  string
+	ConvertedFileTarget string
 }
 
 func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
@@ -219,20 +220,20 @@ func (fs *localStorage) getOCMPath(originalPath string) *ocmPath {
 	path := strings.Replace(originalPath, "/https:/", "https://", 1)
 	values := strings.Split(path, ";")
 
-	fileTarget := values[2]
+	originalFileTarget := values[2]
+	fileTarget := "/"
 
-	fileValues := strings.FieldsFunc(fileTarget, getSplitFunc('/'))
+	fileValues := strings.FieldsFunc(originalFileTarget, getSplitFunc('/'))
 
-	if len(fileValues) == 0 {
-		fileTarget = "/"
-	} else {
-		fileTarget = "/" + strings.Join(fileValues[1:len(fileValues)], "/")
+	if len(fileValues) > 1 {
+		fileTarget += strings.Join(fileValues[1:], "/")
 	}
 
 	return &ocmPath{
-		WebdavURL:  values[0],
-		Token:      values[1],
-		FileTarget: fileTarget,
+		WebdavURL:           values[0],
+		Token:               values[1],
+		OriginalFileTarget:  originalFileTarget,
+		ConvertedFileTarget: fileTarget,
 	}
 }
 
