@@ -1,7 +1,6 @@
 [core]
-app_log = "/var/tmp/revad/app.log"
+log_file = "/var/tmp/revad/app.log"
 max_cpus = 32
-shutdown_deadline = 40
 
 [grpc]
 network = "tcp"
@@ -13,7 +12,7 @@ tls_key = "/etc/gridsecurity/host.key"
 enabled_services = ["storage_provider_svc", "auth_svc"]
 
 [http]
-enabled_services = ["prometheus", "webui"]
+enabled_services = ["prometheus_svc", "webui_svc"]
 network = "tcp"
 address = "0.0.0.0:9998"
 
@@ -37,7 +36,12 @@ root_gid = 0
 [grpc.storage_provider_svc.local]
 root = "/tmp"
 
-[prom]
-network = "tcp"
-address = "0.0.0.0:8080"
-path = "/metrics"
+[http.prometheus_svc]
+path = /metrics
+
+[http.webui_svc]
+path = /ui
+
+[http.webdav_svc]
+path = /webdav
+

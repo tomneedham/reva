@@ -2,21 +2,27 @@ package main
 
 import (
 	"context"
+	"strings"
 	"flag"
 	"fmt"
 	"github.com/cernbox/reva/pkg/err"
+	"strconv"
+	"runtime"
 	"github.com/cernbox/reva/pkg/log"
 
 	"github.com/cernbox/reva/cmd/revad/config"
 	"github.com/cernbox/reva/cmd/revad/grace"
 	"github.com/cernbox/reva/cmd/revad/grpcsvr"
 	"github.com/cernbox/reva/cmd/revad/httpsvr"
+	
+	"github.com/mitchellh/mapstructure"
 )
 
 var (
 	errors = err.New("main")
 	logger = log.New("main")
 	ctx    = context.Background()
+	conf *coreConfig
 
 	versionFlag = flag.Bool("v", false, "show version and exit")
 	testFlag    = flag.Bool("t", false, "test configuration and exit")
@@ -32,6 +38,7 @@ func main() {
 	checkFlags()
 	writePIDFile()
 	readConfig()
+	tweakCPU()
 
 	logger.Println(ctx, "reva is booting")
 	logger.Println(ctx, "logging enabled for the following packages ", log.ListEnabledPackages())
@@ -120,13 +127,57 @@ func readConfig() {
 		logger.Println(ctx, "unable to read configuration file:", *fileFlag, err)
 		grace.Exit(1)
 	}
-	//logger.Println(ctx, config.Dump())
-}
 
-func writePIDFile() {
-	err := grace.WritePIDFile(*pidFlag)
-	if err != nil {
-		logger.Error(ctx, err)
+	// get core config
+	
+	conf = &coreConfig{}
+	if err := mapstructure.Decode(config.Get("core"), conf); err != nil {
+		logger.Println(ctx, "unable to parse core config:", err)
 		grace.Exit(1)
 	}
+}
+
+//  tweakCPU parses string cpu and sets GOMAXPROCS
+// according to its value. It accepts either
+// a number (e.g. 3) or a percent (e.g. 50%).
+func tweakCPU() error {
+	cpu := conf.MaxCPUs
+	var numCPU int
+
+	availCPU := runtime.NumCPU()
+
+	if strings.HasSuffix(cpu, "%") {
+		// Percent
+		var percent float32
+		pctStr := cpu[:len(cpu)-1]
+		pctInt, err := strconv.Atoi(pctStr)
+		if err != nil || pctInt < 1 || pctInt > 100 {
+			return errors.New("invalid CPU value: percentage must be between 1-100")
+		}
+		percent = float32(pctInt) / 100
+		numCPU = int(float32(availCPU) * percent)
+	} else {
+		// Number
+		num, err := strconv.Atoi(cpu)
+		if err != nil || num < 1 {
+			return errors.New("invalid CPU value: provide a number or percent greater than 0")
+		}
+		numCPU = num
+	}
+
+	if numCPU > availCPU {
+		numCPU = availCPU
+	}
+
+	logger.Printf(ctx, "running on %d cpus", numCPU)
+	runtime.GOMAXPROCS(numCPU)
+	return nil
+}
+
+func writePIDFile() error {
+	return grace.WritePIDFile(*pidFlag)
+}
+
+type coreConfig struct {
+	MaxCPUs string `mapstructure:"max_cpus"`
 }
