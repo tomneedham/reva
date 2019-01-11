@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"strings"
+	"os"
 	"flag"
 	"fmt"
 	"github.com/cernbox/reva/pkg/err"
@@ -34,13 +35,19 @@ var (
 	GitCommit, GitBranch, GitState, GitSummary, BuildDate, Version string
 )
 
-func main() {
+func init() {
 	checkFlags()
 	writePIDFile()
 	readConfig()
-	tweakCPU()
+	log.OutPath = conf.LogFile
+	if err := log.EnableAll(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		grace.Exit(1)
+        }
+}
 
-	logger.Println(ctx, "reva is booting")
+func main() {
+	tweakCPU()
 	logger.Println(ctx, "logging enabled for the following packages ", log.ListEnabledPackages())
 
 	grpcSvr := getGRPCServer()
@@ -109,7 +116,7 @@ func checkFlags() {
 	if *testFlag {
 		err := config.Read()
 		if err != nil {
-			logger.Println(ctx, "unable to read configuration file: ", *fileFlag, err)
+			fmt.Println("unable to read configuration file: ", *fileFlag, err)
 			grace.Exit(1)
 		}
 		grace.Exit(0)
@@ -124,7 +131,7 @@ func checkFlags() {
 func readConfig() {
 	err := config.Read()
 	if err != nil {
-		logger.Println(ctx, "unable to read configuration file:", *fileFlag, err)
+		fmt.Println("unable to read configuration file:", *fileFlag, err)
 		grace.Exit(1)
 	}
 
@@ -132,7 +139,7 @@ func readConfig() {
 	
 	conf = &coreConfig{}
 	if err := mapstructure.Decode(config.Get("core"), conf); err != nil {
-		logger.Println(ctx, "unable to parse core config:", err)
+		fmt.Fprintln(os.Stderr, "unable to parse core config:", err)
 		grace.Exit(1)
 	}
 }
@@ -169,15 +176,20 @@ func tweakCPU() error {
 		numCPU = availCPU
 	}
 
-	logger.Printf(ctx, "running on %d cpus", numCPU)
+	logger.Printf(ctx, "running revad on %d cpus", numCPU)
 	runtime.GOMAXPROCS(numCPU)
 	return nil
 }
 
-func writePIDFile() error {
-	return grace.WritePIDFile(*pidFlag)
+func writePIDFile() {
+	err := grace.WritePIDFile(*pidFlag)
+	if err != nil {
+		logger.Error(ctx, err)
+		grace.Exit(1)
+	}
 }
 
 type coreConfig struct {
 	MaxCPUs string `mapstructure:"max_cpus"`
+	LogFile string `mapstructure:"log_file"`
 }

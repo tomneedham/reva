@@ -11,9 +11,10 @@ import (
 )
 
 var nop = &nopLogger{}
-var internalLoggers map[string]logger = map[string]logger{}
+var prefixes = []string{} 
 var enabledLoggers map[string]logger = map[string]logger{}
 var Out io.Writer = os.Stderr
+var OutPath string = "stderr"
 
 type Logger struct {
 	prefix string
@@ -28,11 +29,7 @@ type logger interface {
 }
 
 func ListRegisteredPackages() []string {
-	pkgs := []string{}
-	for k, _ := range internalLoggers {
-		pkgs = append(pkgs, k)
-	}
-	return pkgs
+	return prefixes
 }
 
 func ListEnabledPackages() []string {
@@ -43,33 +40,51 @@ func ListEnabledPackages() []string {
 	return pkgs
 }
 
-func Enable(prefix string) {
-	enabledLoggers[prefix] = internalLoggers[prefix]
+func EnableAll() error {
+	for _, v := range prefixes {
+		if err := Enable(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func Enable(prefix string) error {
+	l, err := create(prefix)
+	if err != nil {
+		return err
+        }
+	enabledLoggers[prefix] = l
+	return nil
 }
 
 func Disable(prefix string) {
 	enabledLoggers[prefix] = nop
 }
 
-func New(prefix string) *Logger {
+func create(prefix string) (*internalLogger, error) {
 	// add whitespace to stdlogger prefix so it is not appended to the date
 	stdLogger := golog.New(Out, prefix+" ", golog.LstdFlags|golog.LUTC)
 	zapConfig := zap.NewProductionConfig()
+	zapConfig.OutputPaths = []string{OutPath}
 	zapConfig.Encoding = "console"
 	zapConfig.EncoderConfig = zap.NewProductionEncoderConfig()
 	zapConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	zapLogger, _ := zapConfig.Build(zap.AddCallerSkip(2))
+	zapLogger, err := zapConfig.Build(zap.AddCallerSkip(2))
+	if err != nil {
+		return nil, err
+	}
 	zapLogger = zapLogger.Named(prefix)
 	internalLogger := &internalLogger{prefix: prefix, stdLogger: stdLogger, pid: os.Getpid(), zapLogger: zapLogger}
-	internalLoggers[prefix] = internalLogger
-	enabledLoggers[prefix] = internalLogger
+	return internalLogger, nil
+}
+
+func New(prefix string) *Logger {
+	prefixes  = append(prefixes, prefix)
+	enabledLoggers[prefix] = nop
 	logger := &Logger{prefix: prefix}
 	return logger
 }
 
-func findInternalLogger(prefix string) logger {
-	return internalLoggers[prefix]
-}
 func findEnabledLogger(prefix string) logger {
 	return enabledLoggers[prefix]
 }

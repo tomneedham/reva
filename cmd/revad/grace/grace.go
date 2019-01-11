@@ -18,8 +18,8 @@ import (
 
 var (
 	ctx       = context.Background()
-	logger    = log.New("grpcsvr")
-	errors    = err.New("grpcsvr")
+	logger    = log.New("grace")
+	errors    = err.New("grace")
 	graceful  = os.Getenv("GRACEFUL") == "true"
 	parentPID = os.Getppid()
 	listeners = []net.Listener{}
