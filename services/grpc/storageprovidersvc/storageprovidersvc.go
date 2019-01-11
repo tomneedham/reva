@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
@@ -86,10 +85,6 @@ func New(m map[string]interface{}) (storageproviderv0alphapb.StorageProviderServ
 }
 
 func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alphapb.CreateDirectoryRequest) (*storageproviderv0alphapb.CreateDirectoryResponse, error) {
-	logger.Println(ctx, "Doing some job")
-	time.Sleep(8 * time.Second)
-	logger.Println(ctx, "Job finished")
-	logger.Println(ctx, "CreateDirectory", req)
 	fn := req.GetFilename()
 	if err := s.storage.CreateDir(ctx, fn); err != nil {
 		err := errors.Wrap(err, "storageprovidersvc: error creating folder "+fn)
@@ -101,7 +96,6 @@ func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alp
 
 	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
 	res := &storageproviderv0alphapb.CreateDirectoryResponse{Status: status}
-	logger.Println(ctx, "CreateDirectory", res)
 	return res, nil
 }
 

@@ -12,8 +12,6 @@ var logger = log.New("grpc-interceptor")
 func LogUnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		logger.Println(ctx, info.FullMethod, req)
-		uuid := uuid.Must(uuid.NewV4()).String()
-		ctx = context.WithValue(ctx, "trace", uuid)
 		return handler(ctx, req)
 	}
 }

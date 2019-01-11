@@ -44,4 +44,3 @@ path = /ui
 
 [http.webdav_svc]
 path = /webdav
-

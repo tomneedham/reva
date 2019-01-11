@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"context"
 	"flag"
 	"fmt"
@@ -23,17 +24,29 @@ import (
 	"github.com/pkg/errors"
 )
 
-var REVA_SERVER = os.Getenv("REVA_SERVER")
+
+var (
+	conf *config
+)
 
 func main() {
 	// Subcommands
+	configureCommand := flag.NewFlagSet("configure", flag.ExitOnError)
 	fsCommand := flag.NewFlagSet("peter", flag.ExitOnError)
 	shareCommand := flag.NewFlagSet("share", flag.ExitOnError)
 	linkCommand := flag.NewFlagSet("share", flag.ExitOnError)
 	loginCommand := flag.NewFlagSet("login", flag.ExitOnError)
 	whoamiCommand := flag.NewFlagSet("whoami", flag.ExitOnError)
+	statCommand := flag.NewFlagSet("stat", flag.ExitOnError)
 
 	mkdirCommand := flag.NewFlagSet("mkdir", flag.ExitOnError)
+	mkdirCommand.Usage = func() {
+		fmt.Fprintf(mkdirCommand.Output(), "Usage: %s %s <filename>\n", os.Args[0], mkdirCommand.Name())
+		mkdirCommand.PrintDefaults()
+	}
+	
+	rmCommand := flag.NewFlagSet("rm", flag.ExitOnError)
+
 	lsCommand := flag.NewFlagSet("ls", flag.ExitOnError)
 
 	//whoamiCommand flags
@@ -53,9 +66,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if REVA_SERVER == "" {
-		fmt.Println("REVA_SERVER is not set")
+	// make sure we have a configuraiton file, else create one	
+	c, err := readConfig()
+	if err != nil && os.Args[1] != "configure" {
+		fmt.Println("reva is not initialized, run \"reva configure\"")
 		os.Exit(1)
+	} else {
+		if os.Args[1] != "configure" {
+			conf = c
+		}
 	}
 
 	// Switch on the subcommand
@@ -63,6 +82,8 @@ func main() {
 	// FlagSet.Parse() requires a set of arguments to parse as input
 	// os.Args[2:] will be all arguments starting after the subcommand at os.Args[1]
 	switch os.Args[1] {
+	case "configure":
+		configureCommand.Parse(os.Args[2:])
 	case "ls":
 		lsCommand.Parse(os.Args[2:])
 	case "mkdir":
@@ -77,13 +98,67 @@ func main() {
 		loginCommand.Parse(os.Args[2:])
 	case "whoami":
 		whoamiCommand.Parse(os.Args[2:])
+	case "rm":
+		rmCommand.Parse(os.Args[2:])
+	case "stat":
+		statCommand.Parse(os.Args[2:])
 	default:
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
+	if statCommand.Parsed() {
+		fn := "/"
+		if statCommand.NArg() >= 1 {
+			fn = statCommand.Args()[0]
+		}
+		
+		err := stat(fn)
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)	
+		}
+
+		os.Exit(0)
+	}
+
+	if rmCommand.Parsed() {
+		fn := "/"
+		if rmCommand.NArg() >= 1 {
+			fn = rmCommand.Args()[0]
+		}
+		
+		err := rm(fn)
+		if err != nil {
+			log.Fatal(err)
+			os.Exit(1)	
+		}
+
+		os.Exit(0)
+	}
+
+	if configureCommand.Parsed() {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("host: ")
+		text, err := read(reader)
+		if err != nil {
+			log.Fatal("error reading input: ", err)
+			os.Exit(1)
+		}
+		
+		c := &config{Host: text}
+		writeConfig(c)
+		fmt.Println("config saved in ", getConfigFile())
+		os.Exit(0)
+	}
+
 	if lsCommand.Parsed() {
-		mds, err := list("/")
+		fn := "/"
+		if lsCommand.NArg() >= 1 {
+			fn = lsCommand.Args()[0]
+		}
+
+		mds, err := list(fn)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
@@ -98,11 +173,18 @@ func main() {
 	}
 
 	if mkdirCommand.Parsed() {
-		err := mkdir("/test")
+		if mkdirCommand.NArg() == 0 {
+			mkdirCommand.Usage()
+			os.Exit(1)
+		}
+
+		fn := mkdirCommand.Args()[0]
+		err := mkdir(fn)
 		if err != nil {
 			log.Fatal(err)
 			os.Exit(1)
 		}
+		os.Exit(0)
 	}
 
 	if fsCommand.Parsed() {
@@ -171,7 +253,9 @@ func main() {
 			// read token from file
 			t, err := readToken()
 			if err != nil {
-				log.Fatal(err)
+				fmt.Println("the token file cannot be readed from file ", getTokenFile())
+				fmt.Println("make sure you have login before with \"reva login\" ", getTokenFile())
+				os.Exit(1)
 			}
 			token = t
 		}
@@ -186,13 +270,22 @@ func main() {
 	}
 }
 
+func getConfigFile() string {
+	user, err := gouser.Current()
+	if err != nil {
+		panic(err)
+	}
+
+	return path.Join(user.HomeDir, ".reva.config")
+}
+
 func getTokenFile() string {
 	user, err := gouser.Current()
 	if err != nil {
 		panic(err)
 	}
 
-	return path.Join(user.HomeDir, ".reva")
+	return path.Join(user.HomeDir, ".reva-token")
 }
 
 func writeToken(token string) {
@@ -207,9 +300,36 @@ func readToken() (string, error) {
 	return string(data), nil
 }
 
+func readConfig() (*config, error) {
+	data, err := ioutil.ReadFile(getConfigFile())
+	if err != nil {
+		return nil, err
+	}
+	
+	c := &config{}
+	if err := json.Unmarshal(data, c); err != nil {
+		return nil, err
+	}
+	
+	return c, nil
+}
+
+func writeConfig(c *config) error  {
+	data, err := json.Marshal(c)	
+	if err != nil {
+		return err
+	}
+	return ioutil.WriteFile(getConfigFile(), data, 0600)
+}
+
+type config struct {
+	Host string `json:"host"`
+}
+
 var mainUsage = `Command line interface to REVA
 
 Available commands:
+  configure configure the reva client
   login     login to reva server
   whoami    tells who you are
   mkdir     create a directory
@@ -280,7 +400,47 @@ func getAuthClient() (authv0alphapb.AuthServiceClient, error) {
 }
 
 func getConn() (*grpc.ClientConn, error) {
-	return grpc.Dial(REVA_SERVER, grpc.WithInsecure())
+	return grpc.Dial(conf.Host, grpc.WithInsecure())
+}
+
+func rm (fn string) error {
+	ctx := context.Background()
+	client, err := getStorageProviderClient()
+	if err != nil {
+		return err
+	}
+
+	req := &storageproviderv0alphapb.DeleteRequest{Filename: fn}
+	res, err := client.Delete(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	if res.Status.Code != rpcpb.Code_CODE_OK {
+		return formatError(res.Status)
+	}
+
+	return nil
+}
+
+func stat(fn string) error {
+	ctx := context.Background()
+	client, err := getStorageProviderClient()
+	if err != nil {
+		return err
+	}
+
+	req := &storageproviderv0alphapb.StatRequest{Filename: fn}
+	res, err := client.Stat(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	if res.Status.Code != rpcpb.Code_CODE_OK {
+		return formatError(res.Status)
+	}
+	fmt.Println(res.Metadata)
+	return nil
 }
 
 func mkdir(fn string) error {

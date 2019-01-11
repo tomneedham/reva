@@ -205,11 +205,27 @@ func (s *service) WhoAmI(ctx context.Context, req *authv0alphapb.WhoAmIRequest) 
 		return res, nil
 	}
 
+	up := &struct {
+		Username string `mapstructure:"username"`
+		DisplayName string `mapstructure:"display_name"`
+		Mail string `mapstructure:"mail"`
+		Groups []string `mapstructure:"groups"`
+ 	}{}
+
+	if err := mapstructure.Decode(claims, up); err != nil {
+		err = errors.Wrap(err, "error parsing token claims")
+		logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_UNAUTHENTICATED}
+		res := &authv0alphapb.WhoAmIResponse{Status: status}
+		return res, nil
+  	}
+	
+
 	user := &authv0alphapb.User{
-		Username:    claims["username"].(string),
-		DisplayName: claims["display_name"].(string),
-		Mail:        claims["mail"].(string),
-		Groups:      claims["groups"].([]string),
+		Username:    up.Username,
+		DisplayName: up.DisplayName,
+		Mail:        up.Mail,
+		Groups:      up.Groups,
 	}
 
 	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
