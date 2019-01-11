@@ -3,10 +3,12 @@ package grace
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -22,7 +24,76 @@ var (
 	parentPID = os.Getppid()
 	listeners = []net.Listener{}
 	srvrs     = []Server{}
+	pidFile   string
+	childrenPID = []int{}
 )
+
+func Exit(errc int) {
+	err := removePIDFile()
+	if err != nil {
+		logger.Error(ctx, err)
+	} else {
+		logger.Println(ctx, "pidfile got removed")
+	}
+
+	os.Exit(errc)
+}
+
+func getPIDFromFile(fn string) (int, error) {
+	piddata, err := ioutil.ReadFile(fn)
+	if err != nil {
+		return 0, err
+	}
+	// Convert the file contents to an integer.
+	pid, err := strconv.Atoi(string(piddata))
+	if err != nil {
+		return 0, err
+	}
+	return pid, nil
+}
+
+// Write a pid file, but first make sure it doesn't exist with a running pid.
+func WritePIDFile(fn string) error {
+	// Read in the pid file as a slice of bytes.
+	if piddata, err := ioutil.ReadFile(fn); err == nil {
+		// Convert the file contents to an integer.
+		if pid, err := strconv.Atoi(string(piddata)); err == nil {
+			// Look for the pid in the process list.
+			if process, err := os.FindProcess(pid); err == nil {
+				// Send the process a signal zero kill.
+				if err := process.Signal(syscall.Signal(0)); err == nil {
+					if !graceful {
+						// We only get an error if the pid isn't running, or it's not ours.
+						return fmt.Errorf("pid already running: %d", pid)
+					}
+
+					if pid != parentPID  { // overwrite only if parent pid is pidfile
+						// We only get an error if the pid isn't running, or it's not ours.
+						return fmt.Errorf("pid %d is not this process parent", pid)
+					}
+				} else {
+					logger.Error(ctx, err)
+				}
+			} else {
+				logger.Error(ctx, err)
+			}
+		} else {
+			logger.Error(ctx, err)
+		}
+	} else {
+		logger.Error(ctx, err)
+	}
+
+	// If we get here, then the pidfile didn't exist or we are are in graceful reload and thus we overwrite 
+	// or the pid in it doesn't belong to the user running this app.
+	err := ioutil.WriteFile(fn, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
+	if err != nil {
+		return err
+	}
+	logger.Printf(ctx, "pid file written to %s", fn)
+	pidFile = fn
+	return nil
+}
 
 func newListener(network, addr string) (net.Listener, error) {
 	return net.Listen(network, addr)
@@ -81,15 +152,29 @@ type Server interface {
 	Address() string
 }
 
+func removePIDFile() error {
+	// only remove PID file if the PID written is us
+	filePID, err := getPIDFromFile(pidFile)
+	if err != nil {
+		return err
+	}
+
+	if filePID != os.Getpid() {
+		return fmt.Errorf("pid in pidfile is different from running pid")
+	}
+
+	return os.Remove(pidFile)
+}
+
 func TrapSignals() {
 	signalCh := make(chan os.Signal, 1024)
-	signal.Notify(signalCh, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT, syscall.SIGQUIT)
+	signal.Notify(signalCh, syscall.SIGHUP, syscall.SIGINT, syscall.SIGQUIT)
 	for {
 		select {
 		case s := <-signalCh:
 			logger.Printf(ctx, "%v signal received", s)
 			switch s {
-			case syscall.SIGHUP, syscall.SIGUSR2:
+			case syscall.SIGHUP:
 				logger.Println(ctx, "preparing for a hot-reload, forking child process...")
 				// Fork a child process.
 				listeners := getListeners()
@@ -98,6 +183,7 @@ func TrapSignals() {
 					logger.Println(ctx, "unable to fork child process: ", err)
 				} else {
 					logger.Printf(ctx, "child forked with new pid %d", p.Pid)
+					childrenPID = append(childrenPID, p.Pid)
 				}
 
 			case syscall.SIGQUIT:
@@ -113,7 +199,7 @@ func TrapSignals() {
 								s.Stop()
 								logger.Printf(ctx, "fd to %s:%s abruptly closed", s.Network(), s.Address())
 							}
-							os.Exit(1)
+							Exit(1)
 						}
 					}
 				}()
@@ -121,14 +207,19 @@ func TrapSignals() {
 					logger.Printf(ctx, "fd to %s:%s gracefully closed ", s.Network(), s.Address())
 					s.GracefulStop()
 				}
-				os.Exit(0)
+				logger.Println(ctx, "exit with error code 0")
+				Exit(0)
 			case syscall.SIGINT, syscall.SIGTERM:
 				logger.Println(ctx, "preparing for hard shutdown, aborting all conns")
 				for _, s := range srvrs {
 					logger.Printf(ctx, "fd to %s:%s abruptly closed", s.Network(), s.Address())
-					s.Stop()
+					err := s.Stop()
+					if err != nil {
+						err = errors.Wrap(err, "error stopping server")
+						logger.Error(ctx, err)
+					}
 				}
-				os.Exit(0)
+				Exit(0)
 			}
 		}
 	}

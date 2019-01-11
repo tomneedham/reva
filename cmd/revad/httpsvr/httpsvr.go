@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
@@ -46,11 +47,18 @@ func New(m map[string]interface{}) (*Server, error) {
 
 func (s *Server) Start(ln net.Listener) error {
 	s.listener = ln
-	return s.s.Serve(s.listener)
+	// always return non-nil error
+	// when calling Shutdown, the error returned will be ErrServerClosed
+	err := s.s.Serve(s.listener)
+	if err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 func (s *Server) Stop() error {
 	// TODO(labkode): set ctx deadline to zero
+	ctx, _ = context.WithTimeout(ctx, time.Second)
 	return s.s.Shutdown(ctx)
 }
 
