@@ -85,10 +85,19 @@ func New(m map[string]interface{}) (storageproviderv0alphapb.StorageProviderServ
 	return service, nil
 }
 
+type notFoundError interface {
+	IsNotFound()
+}
+
 func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alphapb.CreateDirectoryRequest) (*storageproviderv0alphapb.CreateDirectoryResponse, error) {
 	fn := req.GetFilename()
 	if err := s.storage.CreateDir(ctx, fn); err != nil {
-		err := errors.Wrap(err, "storageprovidersvc: error creating folder "+fn)
+		if _, ok := err.(notFoundError); ok {
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_NOT_FOUND}
+			res := &storageproviderv0alphapb.CreateDirectoryResponse{Status: status}
+			return res, nil
+		}
+		err = errors.Wrap(err, "storageprovidersvc: error creating folder "+fn)
 		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.CreateDirectoryResponse{Status: status}

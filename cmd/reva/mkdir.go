@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	rpcpb "github.com/cernbox/go-cs3apis/cs3/rpc"
@@ -10,9 +11,10 @@ import (
 
 func mkdirCommand() *command {
 	cmd := newCommand("mkdir")
+	cmd.Description = func() string { return "creates a folder" }
 	cmd.Action = func() error {
 		if cmd.NArg() == 0 {
-			cmd.Usage()
+			fmt.Println(cmd.Usage())
 			os.Exit(1)
 		}
 

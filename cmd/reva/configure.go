@@ -8,6 +8,7 @@ import (
 
 var configureCommand = func() *command {
 	cmd := newCommand("configure")
+	cmd.Description = func() string { return "configure the reva client" }
 	cmd.Action = func() error {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("host: ")

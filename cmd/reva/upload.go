@@ -7,12 +7,15 @@ import (
 	"io"
 	"os"
 
+	"github.com/cheggaaa/pb"
+
 	rpcpb "github.com/cernbox/go-cs3apis/cs3/rpc"
 	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
 )
 
 func uploadCommand() *command {
 	cmd := newCommand("upload")
+	cmd.Description = func() string { return "upload a local file to the remote server" }
 	cmd.Action = func() error {
 		fn := "/"
 		if cmd.NArg() < 2 {
@@ -23,9 +26,11 @@ func uploadCommand() *command {
 		fn = cmd.Args()[0]
 		target := cmd.Args()[1]
 
-		fmt.Printf("Uploading %s to %s\n", fn, target)
-
 		fd, err := os.Open(fn)
+		if err != nil {
+			return err
+		}
+		md, err := fd.Stat()
 		if err != nil {
 			return err
 		}
@@ -56,15 +61,18 @@ func uploadCommand() *command {
 			return err
 		}
 
+		bar := pb.New(int(md.Size())).SetUnits(pb.U_BYTES)
 		xs := md5.New()
 		nchunks, offset := 0, 0
 		// TODO(labkode): change buffer size in configuration
 		bufferSize := 1024 * 1024 * 3
 		buffer := make([]byte, bufferSize)
+		writer := io.MultiWriter(xs, bar)
+		bar.Start()
 		for {
 			n, err := fd.Read(buffer)
 			if n > 0 {
-				xs.Write(buffer[:n])
+				writer.Write(buffer[:n])
 				req := &storageproviderv0alphapb.WriteRequest{
 					Data:      buffer[:n],
 					Length:    uint64(n),
@@ -85,6 +93,7 @@ func uploadCommand() *command {
 			}
 		}
 
+		bar.Finish()
 		res2, err := stream.CloseAndRecv()
 		if err != nil {
 			return err
@@ -94,10 +103,11 @@ func uploadCommand() *command {
 			return formatError(res2.Status)
 		}
 
-		wb := res2.WrittenBytes
+		//wb := res2.WrittenBytes
 
-		fmt.Println("Written bytes: ", wb, " NumChunks: ", nchunks, " MD5: ", fmt.Sprintf("%x", xs.Sum(nil)))
+		//fmt.Println("Written bytes: ", wb, " NumChunks: ", nchunks, " MD5: ", fmt.Sprintf("%x", xs.Sum(nil)))
 
+		fmt.Println("Closing write session ...")
 		req3 := &storageproviderv0alphapb.FinishWriteSessionRequest{
 			Filename:  target,
 			SessionId: sessID,

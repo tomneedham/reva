@@ -95,6 +95,9 @@ func (fs *localFS) CreateDir(ctx context.Context, fn string) error {
 	fn = fs.addRoot(fn)
 	err := os.Mkdir(fn, 0700)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return notFoundError(fn)
+		}
 		return errors.Wrap(err, "localfs: error creating dir "+fn)
 	}
 	return nil

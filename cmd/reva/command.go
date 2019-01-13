@@ -8,9 +8,10 @@ import (
 // command is the representation to create commands
 type command struct {
 	*flag.FlagSet
-	Name   string
-	Action func() error
-	Usage  func() string
+	Name        string
+	Action      func() error
+	Usage       func() string
+	Description func() string
 }
 
 // newCommand creates a new command
@@ -19,11 +20,14 @@ func newCommand(name string) *command {
 	cmd := &command{
 		Name: name,
 		Usage: func() string {
-			return "TODO"
+			return fmt.Sprintf("Usage: %s", name)
 		},
 		Action: func() error {
-			fmt.Println("hello")
+			fmt.Println("Hello REVA")
 			return nil
+		},
+		Description: func() string {
+			return "TODO description"
 		},
 		FlagSet: fs,
 	}

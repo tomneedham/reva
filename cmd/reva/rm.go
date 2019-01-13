@@ -9,6 +9,7 @@ import (
 
 func rmCommand() *command {
 	cmd := newCommand("rm")
+	cmd.Description = func() string { return "removes a file or folder" }
 	cmd.Action = func() error {
 		fn := "/"
 		if cmd.NArg() >= 1 {

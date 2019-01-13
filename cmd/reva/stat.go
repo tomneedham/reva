@@ -10,6 +10,7 @@ import (
 
 func statCommand() *command {
 	cmd := newCommand("stat")
+	cmd.Description = func() string { return "get the metadata for a file or folder" }
 	cmd.Action = func() error {
 		fn := "/"
 		if cmd.NArg() >= 1 {

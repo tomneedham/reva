@@ -32,5 +32,11 @@ func getConn() (*grpc.ClientConn, error) {
 }
 
 func formatError(status *rpcpb.Status) error {
-	return errors.New(fmt.Sprintf("apierror: code=%v msg=%s", status.Code, status.Message))
+	switch status.Code {
+	case rpcpb.Code_CODE_NOT_FOUND:
+		return errors.New("error: not found")
+
+	default:
+		return errors.New(fmt.Sprintf("apierror: code=%v msg=%s", status.Code, status.Message))
+	}
 }

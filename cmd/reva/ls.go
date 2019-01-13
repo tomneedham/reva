@@ -11,6 +11,7 @@ import (
 
 func lsCommand() *command {
 	cmd := newCommand("ls")
+	cmd.Description = func() string { return "list a folder contents" }
 	longFlag := cmd.Bool("l", false, "long listing")
 	cmd.Action = func() error {
 		fn := "/"

@@ -11,6 +11,7 @@ import (
 
 func whoamiCommand() *command {
 	cmd := newCommand("whoami")
+	cmd.Description = func() string { return "tells who you are" }
 	tokenFlag := cmd.String("token", "", "access token to use")
 
 	cmd.Action = func() error {
