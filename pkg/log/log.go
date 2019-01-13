@@ -11,7 +11,7 @@ import (
 )
 
 var nop = &nopLogger{}
-var prefixes = []string{} 
+var prefixes = []string{}
 var enabledLoggers map[string]logger = map[string]logger{}
 var Out io.Writer = os.Stderr
 var OutPath string = "stderr"
@@ -52,7 +52,7 @@ func Enable(prefix string) error {
 	l, err := create(prefix)
 	if err != nil {
 		return err
-        }
+	}
 	enabledLoggers[prefix] = l
 	return nil
 }
@@ -79,7 +79,7 @@ func create(prefix string) (*internalLogger, error) {
 }
 
 func New(prefix string) *Logger {
-	prefixes  = append(prefixes, prefix)
+	prefixes = append(prefixes, prefix)
 	enabledLoggers[prefix] = nop
 	logger := &Logger{prefix: prefix}
 	return logger

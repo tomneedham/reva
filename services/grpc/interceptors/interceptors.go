@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"context"
+
 	"github.com/cernbox/reva/pkg/log"
 	"github.com/gofrs/uuid"
 	"google.golang.org/grpc"

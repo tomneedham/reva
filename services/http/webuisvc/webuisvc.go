@@ -5,7 +5,7 @@ import (
 )
 
 type svc struct {
-	path string
+	path    string
 	handler http.Handler
 }
 
@@ -18,7 +18,7 @@ func (s *svc) GetPath() string {
 }
 
 func (s *svc) GetHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request){
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<h1>Phoenix will go here</h1>"))
 	})
 }

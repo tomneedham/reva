@@ -2,6 +2,7 @@ package storageprovidersvc
 
 import (
 	"bytes"
+	"crypto/md5"
 	"fmt"
 	"io"
 	"os"
@@ -15,8 +16,8 @@ import (
 	"github.com/cernbox/reva/pkg/storage"
 	"github.com/cernbox/reva/pkg/storage/local"
 
-	"github.com/cernbox/go-cs3apis/cs3/rpc"
-	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
+	rpcpb "github.com/cernbox/go-cs3apis/cs3/rpc"
+	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
 
 	"github.com/gofrs/uuid"
 	"github.com/mitchellh/mapstructure"
@@ -232,20 +233,15 @@ func (s *service) StartWriteSession(ctx context.Context, req *storageproviderv0a
 
 func (s *service) Write(stream storageproviderv0alphapb.StorageProviderService_WriteServer) error {
 	ctx := stream.Context()
-	numChunks := 0
-	var writtenBytes int64 = 0
+	var numChunks int
+	var writtenBytes int64
 
 	for {
 		req, err := stream.Recv()
 
 		if err == io.EOF {
-			status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
-			res := &storageproviderv0alphapb.WriteResponse{Status: status}
-			if err = stream.SendAndClose(res); err != nil {
-				err = errors.Wrap(err, "storageprovidersvc: error closing stream for write")
-				return err
-			}
-			return nil
+			logger.Println(ctx, "no more chunks to receive")
+			break
 		}
 
 		if err != nil {
@@ -261,9 +257,23 @@ func (s *service) Write(stream storageproviderv0alphapb.StorageProviderService_W
 			return nil
 		}
 
+		if req.SessionId == "" {
+			err = errors.New("sesssion id cannot be empty")
+			logger.Error(ctx, err)
+
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storageproviderv0alphapb.WriteResponse{Status: status}
+			if err = stream.SendAndClose(res); err != nil {
+				err = errors.Wrap(err, "error closing stream for write")
+				logger.Error(ctx, err)
+				return err
+			}
+			return nil
+		}
+
 		sessionFolder := s.getSessionFolder(req.SessionId)
 		chunkFile := filepath.Join(sessionFolder, fmt.Sprintf("%d-%d", req.Offset, req.Length))
-
+		fmt.Println("chunk offset: ", req.Offset)
 		fd, err := os.OpenFile(chunkFile, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0600)
 		defer fd.Close()
 		if err != nil {
@@ -328,12 +338,12 @@ func (s *service) FinishWriteSession(ctx context.Context, req *storageproviderv0
 	if err != nil {
 		err = errors.Wrap(err, "storageprovidersvc: error listing session folder")
 		logger.Error(ctx, err)
-		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
 		return res, nil
 	}
 
-	// sort the chunks so they are in order when they need to be assembled.
+	// sort the chunks by offset so they are in order when they need to be assembled.
 	names = s.getSortedChunkSlice(names)
 
 	//l.Debug("chunk sorted names", zap.String("names", fmt.Sprintf("%+v", names)))
@@ -347,11 +357,12 @@ func (s *service) FinishWriteSession(ctx context.Context, req *storageproviderv0
 	if err != nil {
 		err = errors.Wrap(err, "storageprovidersvc: error opening assembly file")
 		logger.Error(ctx, err)
-		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
 		return res, nil
 	}
 
+	xs := md5.New()
 	for _, n := range names {
 		//l.Debug("processing chunk", zap.String("name", n), zap.Int("int", i))
 		chunkFilename := filepath.Join(sessionFolder, n)
@@ -361,7 +372,7 @@ func (s *service) FinishWriteSession(ctx context.Context, req *storageproviderv0
 		if err != nil {
 			err = errors.Wrap(err, "storageprovidersvc: error parsing chunk fn")
 			logger.Error(ctx, err)
-			status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 			res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
 			return res, nil
 		}
@@ -369,14 +380,29 @@ func (s *service) FinishWriteSession(ctx context.Context, req *storageproviderv0
 		chunk, err := os.Open(chunkFilename)
 		defer chunk.Close()
 		if err != nil {
-			return nil, err
+			err = errors.Wrap(err, "storageprovidersvc: error opening chunk file")
+			logger.Error(ctx, err)
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
+			return res, nil
 		}
-		n, err := io.CopyN(assembledFile, chunk, int64(chunkInfo.ClientLength))
+
+		mw := io.MultiWriter(assembledFile, xs)
+		n, err := io.CopyN(mw, chunk, int64(chunkInfo.ClientLength))
 		if err != nil && err != io.EOF {
-			return nil, err
+			err = errors.Wrap(err, "error copying data to chunkfile")
+			logger.Error(ctx, err)
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
+			return res, nil
 		}
 		if n != int64(chunkInfo.ClientLength) {
-			return nil, fmt.Errorf("chunk size in disk is different from chunk size sent from client. Read: %d Sent: %d", n, chunkInfo.ClientLength)
+			err := fmt.Errorf("chunk size in disk is different from chunk size sent from client. Read: %d Sent: %d", n, chunkInfo.ClientLength)
+			err = errors.Wrap(err, "chunk size is invalid")
+			logger.Error(ctx, err)
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+			res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
+			return res, nil
 		}
 		chunk.Close()
 	}
@@ -384,9 +410,20 @@ func (s *service) FinishWriteSession(ctx context.Context, req *storageproviderv0
 
 	fd, err = os.Open(assembledFilename)
 	if err != nil {
-		err = errors.Wrap(err, "storageprovidersvc: error opening assembled file")
+		err = errors.Wrap(err, "error opening assembled file")
 		logger.Error(ctx, err)
-		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
+		res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
+		return res, nil
+	}
+
+	xsComputed := fmt.Sprintf("%x", xs.Sum(nil))
+	logger.Printf(ctx, "computed checksum: %s", xsComputed)
+	if "md5:"+xsComputed != req.Checksum {
+		err := fmt.Errorf("checksum mismatch between sent=%s and computed=%s", req.Checksum, xsComputed)
+		err = errors.Wrap(err, "file corrupted got corrupted")
+		logger.Error(ctx, err)
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
 		return res, nil
 	}
@@ -394,7 +431,7 @@ func (s *service) FinishWriteSession(ctx context.Context, req *storageproviderv0
 	if err := s.storage.Upload(ctx, req.Filename, fd); err != nil {
 		err = errors.Wrap(err, "storageprovidersvc: error  uploading assembled file")
 		logger.Error(ctx, err)
-		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.FinishWriteSessionResponse{Status: status}
 		return res, nil
 	}

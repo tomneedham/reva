@@ -1,12 +1,12 @@
 package promsvc
 
 import (
-	"net/http"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
 )
 
 type svc struct {
-	path string
+	path    string
 	handler http.Handler
 }
 

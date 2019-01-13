@@ -2,20 +2,20 @@ package main
 
 import (
 	"context"
-	"strings"
-	"os"
 	"flag"
 	"fmt"
 	"github.com/cernbox/reva/pkg/err"
-	"strconv"
-	"runtime"
 	"github.com/cernbox/reva/pkg/log"
+	"os"
+	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/cernbox/reva/cmd/revad/config"
 	"github.com/cernbox/reva/cmd/revad/grace"
 	"github.com/cernbox/reva/cmd/revad/grpcsvr"
 	"github.com/cernbox/reva/cmd/revad/httpsvr"
-	
+
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -23,7 +23,7 @@ var (
 	errors = err.New("main")
 	logger = log.New("main")
 	ctx    = context.Background()
-	conf *coreConfig
+	conf   *coreConfig
 
 	versionFlag = flag.Bool("v", false, "show version and exit")
 	testFlag    = flag.Bool("t", false, "test configuration and exit")
@@ -43,7 +43,7 @@ func init() {
 	if err := log.EnableAll(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		grace.Exit(1)
-        }
+	}
 }
 
 func main() {
@@ -136,7 +136,7 @@ func readConfig() {
 	}
 
 	// get core config
-	
+
 	conf = &coreConfig{}
 	if err := mapstructure.Decode(config.Get("core"), conf); err != nil {
 		fmt.Fprintln(os.Stderr, "unable to parse core config:", err)
@@ -184,7 +184,7 @@ func tweakCPU() error {
 func writePIDFile() {
 	err := grace.WritePIDFile(*pidFlag)
 	if err != nil {
-		logger.Error(ctx, err)
+		fmt.Fprintln(os.Stderr, err)
 		grace.Exit(1)
 	}
 }

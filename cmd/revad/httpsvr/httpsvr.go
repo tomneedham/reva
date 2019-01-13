@@ -47,7 +47,11 @@ func New(m map[string]interface{}) (*Server, error) {
 
 func (s *Server) Start(ln net.Listener) error {
 	s.listener = ln
-	return s.s.Serve(s.listener)
+	err := s.s.Serve(s.listener)
+	if err == nil || err == http.ErrServerClosed {
+		return nil
+	}
+	return err
 }
 
 func (s *Server) Stop() error {

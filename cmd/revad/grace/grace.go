@@ -17,14 +17,14 @@ import (
 )
 
 var (
-	ctx       = context.Background()
-	logger    = log.New("grace")
-	errors    = err.New("grace")
-	graceful  = os.Getenv("GRACEFUL") == "true"
-	parentPID = os.Getppid()
-	listeners = []net.Listener{}
-	srvrs     = []Server{}
-	pidFile   string
+	ctx         = context.Background()
+	logger      = log.New("grace")
+	errors      = err.New("grace")
+	graceful    = os.Getenv("GRACEFUL") == "true"
+	parentPID   = os.Getppid()
+	listeners   = []net.Listener{}
+	srvrs       = []Server{}
+	pidFile     string
 	childrenPID = []int{}
 )
 
@@ -67,7 +67,7 @@ func WritePIDFile(fn string) error {
 						return fmt.Errorf("pid already running: %d", pid)
 					}
 
-					if pid != parentPID  { // overwrite only if parent pid is pidfile
+					if pid != parentPID { // overwrite only if parent pid is pidfile
 						// We only get an error if the pid isn't running, or it's not ours.
 						return fmt.Errorf("pid %d is not this process parent", pid)
 					}
@@ -84,7 +84,7 @@ func WritePIDFile(fn string) error {
 		logger.Error(ctx, err)
 	}
 
-	// If we get here, then the pidfile didn't exist or we are are in graceful reload and thus we overwrite 
+	// If we get here, then the pidfile didn't exist or we are are in graceful reload and thus we overwrite
 	// or the pid in it doesn't belong to the user running this app.
 	err := ioutil.WriteFile(fn, []byte(fmt.Sprintf("%d", os.Getpid())), 0664)
 	if err != nil {
