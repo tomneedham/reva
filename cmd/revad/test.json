@@ -1,5 +1,0 @@
-{
-	"network": "tcp", 
-	"address": "0.0.0.0:9001",
-	"services": ["auth_svc", "storage_provider_svc"]
-}
