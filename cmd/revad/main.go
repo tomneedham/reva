@@ -4,12 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/cernbox/reva/pkg/err"
-	"github.com/cernbox/reva/pkg/log"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/cernbox/reva/pkg/err"
+	"github.com/cernbox/reva/pkg/log"
 
 	"github.com/cernbox/reva/cmd/revad/config"
 	"github.com/cernbox/reva/cmd/revad/grace"

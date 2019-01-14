@@ -22,6 +22,7 @@ func main() {
 		downloadCommand(),
 		rmCommand(),
 		mkdirCommand(),
+		brokerFindCommand(),
 	}
 
 	mainUsage := createMainUsage(cmds)

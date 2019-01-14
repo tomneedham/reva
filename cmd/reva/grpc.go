@@ -7,10 +7,18 @@ import (
 
 	authv0alphapb "github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
 	rpcpb "github.com/cernbox/go-cs3apis/cs3/rpc"
+	storagebrokerv0alphapb "github.com/cernbox/go-cs3apis/cs3/storagebroker/v0alpha"
 	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
 	"google.golang.org/grpc"
 )
 
+func getStorageBrokerClient() (storagebrokerv0alphapb.StorageBrokerServiceClient, error) {
+	conn, err := getConn()
+	if err != nil {
+		return nil, err
+	}
+	return storagebrokerv0alphapb.NewStorageBrokerServiceClient(conn), nil
+}
 func getStorageProviderClient() (storageproviderv0alphapb.StorageProviderServiceClient, error) {
 	conn, err := getConn()
 	if err != nil {

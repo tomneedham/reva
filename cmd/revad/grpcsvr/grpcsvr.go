@@ -5,16 +5,19 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
-	"github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
+	storagebrokerv0alphapb "github.com/cernbox/go-cs3apis/cs3/storagebroker/v0alpha"
+
+	authv0alphapb "github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
+	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
 	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
 	"github.com/cernbox/reva/services/grpc/authsvc"
 	"github.com/cernbox/reva/services/grpc/interceptors"
+	"github.com/cernbox/reva/services/grpc/storagebrokersvc"
 	"github.com/cernbox/reva/services/grpc/storageprovidersvc"
-	"github.com/grpc-ecosystem/go-grpc-middleware"
-	"github.com/grpc-ecosystem/go-grpc-middleware/recovery"
-	"github.com/grpc-ecosystem/go-grpc-prometheus"
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -33,6 +36,7 @@ type config struct {
 	EnabledServices    []string               `mapstructure:"enabled_services"`
 	StorageProviderSvc map[string]interface{} `mapstructure:"storage_provider_svc"`
 	AuthSvc            map[string]interface{} `mapstructure:"auth_svc"`
+	StorageBrokerSvc   map[string]interface{} `mapstructure:"storage_broker_svc"`
 }
 
 type Server struct {
@@ -106,6 +110,15 @@ func (s *Server) registerServices() error {
 				return errors.Wrap(err, "unable to register service "+k)
 			}
 			authv0alphapb.RegisterAuthServiceServer(s.s, svc)
+			logger.Printf(ctx, "service %s registered", k)
+			enabled = append(enabled, k)
+
+		case "storage_broker_svc":
+			svc, err := storagebrokersvc.New(s.conf.StorageBrokerSvc)
+			if err != nil {
+				return errors.Wrap(err, "unable to register service "+k)
+			}
+			storagebrokerv0alphapb.RegisterStorageBrokerServiceServer(s.s, svc)
 			logger.Printf(ctx, "service %s registered", k)
 			enabled = append(enabled, k)
 		}

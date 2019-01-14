@@ -93,6 +93,18 @@ type Revision struct {
 	IsDir  bool
 }
 
+// Broker is the interface that storage brokers implement
+// for discovering storage providers
+type Broker interface {
+	FindProvider(ctx context.Context, fn string) (*ProviderInfo, error)
+}
+
+// ProviderInfo contains the information
+// about a StorageProvider
+type ProviderInfo struct {
+	Location string
+}
+
 // FSTable contains descriptive information about the various file systems.
 // It follows the same logic as unix fstab.
 type FSTable interface {
