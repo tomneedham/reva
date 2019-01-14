@@ -62,7 +62,7 @@ func getBroker(c *config) (storage.Broker, error) {
 	}
 }
 func (s *service) GetStorageProvider(ctx context.Context, req *storagebrokerv0alphapb.GetStorageProviderRequest) (*storagebrokerv0alphapb.GetStorageProviderResponse, error) {
-	fn := req.Filename
+	fn := req.FilenameOrFileid
 	p, err := s.broker.FindProvider(ctx, fn)
 	if err != nil {
 		logger.Error(ctx, err)
