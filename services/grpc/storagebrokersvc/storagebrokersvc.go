@@ -61,19 +61,19 @@ func getBroker(c *config) (storage.Broker, error) {
 		return nil, fmt.Errorf("driver not found: %s", c.Driver)
 	}
 }
-func (s *service) GetStorageProvider(ctx context.Context, req *storagebrokerv0alphapb.GetStorageProviderRequest) (*storagebrokerv0alphapb.GetStorageProviderResponse, error) {
-	fn := req.FilenameOrFileid
+func (s *service) Find(ctx context.Context, req *storagebrokerv0alphapb.FindRequest) (*storagebrokerv0alphapb.FindResponse, error) {
+	fn := req.Filename
 	p, err := s.broker.FindProvider(ctx, fn)
 	if err != nil {
 		logger.Error(ctx, err)
-		res := &storagebrokerv0alphapb.GetStorageProviderResponse{
+		res := &storagebrokerv0alphapb.FindResponse{
 			Status: &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL},
 		}
 		return res, nil
 	}
 
 	provider := format(p)
-	res := &storagebrokerv0alphapb.GetStorageProviderResponse{
+	res := &storagebrokerv0alphapb.FindResponse{
 		Status:       &rpcpb.Status{Code: rpcpb.Code_CODE_OK},
 		ProviderInfo: provider,
 	}

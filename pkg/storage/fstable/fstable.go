@@ -1,8 +1,9 @@
 package fstable
 
 import (
-	"github.com/cernbox/reva/pkg/storage"
 	"strings"
+
+	"github.com/cernbox/reva/pkg/storage"
 )
 
 type fsTable struct {

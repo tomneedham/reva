@@ -57,15 +57,18 @@ func (fs *localFS) normalize(fi os.FileInfo, fn string) *storage.MD {
 		IsDir:       fi.IsDir(),
 		Path:        fn,
 		Size:        uint64(fi.Size()),
-		ID:          fn,
+		ID:          "fileid-" + strings.TrimPrefix(fn, "/"),
 		Etag:        fmt.Sprintf("%d", fi.ModTime().Unix()),
 		Permissions: &storage.Permissions{Read: true, Write: true, Share: true},
 	}
 	return md
 }
 
+// GetPathByID returns the path pointed by the file id
+// In this implementation the file id is that path of the file without the first slash
+// thus the file id always points to the filename
 func (fs *localFS) GetPathByID(ctx context.Context, id string) (string, error) {
-	return "", notSupportedError("op not supported")
+	return path.Join("/", strings.TrimPrefix(id, "fileid-")), nil
 }
 
 func (fs *localFS) SetACL(ctx context.Context, path string, a *storage.ACL) error {
@@ -133,6 +136,7 @@ func (fs *localFS) GetMD(ctx context.Context, fn string) (*storage.MD, error) {
 		}
 		return nil, errors.Wrap(err, "localfs: error stating "+fn)
 	}
+
 	return fs.normalize(md, fn), nil
 }
 

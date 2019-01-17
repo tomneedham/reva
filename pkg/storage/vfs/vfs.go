@@ -2,11 +2,12 @@ package vfs
 
 import (
 	"context"
-	"github.com/cernbox/reva/pkg/storage"
-	"github.com/pkg/errors"
 	"io"
 	"path"
 	"strings"
+
+	"github.com/cernbox/reva/pkg/storage"
+	"github.com/pkg/errors"
 )
 
 type vfs struct {

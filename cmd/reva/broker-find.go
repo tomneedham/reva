@@ -19,7 +19,7 @@ func brokerFindCommand() *command {
 			fn = cmd.Args()[0]
 		}
 
-		req := &storagebrokerv0alphapb.GetStorageProviderRequest{
+		req := &storagebrokerv0alphapb.FindRequest{
 			Filename: fn,
 		}
 		client, err := getStorageBrokerClient()
@@ -27,7 +27,7 @@ func brokerFindCommand() *command {
 			return err
 		}
 		ctx := context.Background()
-		res, err := client.GetStorageProvider(ctx, req)
+		res, err := client.Find(ctx, req)
 		if err != nil {
 			return err
 		}

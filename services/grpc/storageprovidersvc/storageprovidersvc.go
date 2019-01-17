@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -29,6 +30,8 @@ var errors = err.New("storageprovidersvc")
 
 type config struct {
 	Driver    string                 `mapstructure:"driver"`
+	MountPath string                 `mapstructure:"mount_path"`
+	MountID   string                 `mapstructure:"mount_id"`
 	TmpFolder string                 `mapstructure:"tmp_folder"`
 	EOS       map[string]interface{} `mapstructure:"eos"`
 	S3        map[string]interface{} `mapstructure:"s3"`
@@ -36,8 +39,9 @@ type config struct {
 }
 
 type service struct {
-	storage   storage.FS
-	tmpFolder string
+	storage            storage.FS
+	mountPath, mountID string
+	tmpFolder          string
 }
 
 func parseConfig(m map[string]interface{}) (*config, error) {
@@ -59,11 +63,12 @@ func getFS(c *config) (storage.FS, error) {
 	}
 }
 
+// New creates a new storage provider svc
 func New(m map[string]interface{}) (storageproviderv0alphapb.StorageProviderServiceServer, error) {
 
 	c, err := parseConfig(m)
 	if err != nil {
-		return nil, errors.Wrap(err, "storageprovidersvc: unable to parse config")
+		return nil, errors.Wrap(err, "unable to parse config")
 	}
 
 	// use os temporary folder if empty
@@ -72,14 +77,19 @@ func New(m map[string]interface{}) (storageproviderv0alphapb.StorageProviderServ
 		tmpFolder = os.TempDir()
 	}
 
+	mountPath := c.MountPath
+	mountID := c.MountID
+
 	fs, err := getFS(c)
 	if err != nil {
-		return nil, errors.Wrap(err, "storageprovidersvc: unable to obtain a filesystem")
+		return nil, errors.Wrap(err, "unable to obtain a filesystem")
 	}
 
 	service := &service{
 		storage:   fs,
 		tmpFolder: tmpFolder,
+		mountPath: mountPath,
+		mountID:   mountID,
 	}
 
 	return service, nil
@@ -89,15 +99,30 @@ type notFoundError interface {
 	IsNotFound()
 }
 
+func (s *service) trimMounPrefix(fn string) (string, string, error) {
+	mountID := s.mountID + ":"
+	if strings.HasPrefix(fn, s.mountPath) {
+		return s.mountPath, path.Join("/", strings.TrimPrefix(fn, s.mountPath)), nil
+	}
+	if strings.HasPrefix(fn, mountID) {
+		return mountID, strings.TrimPrefix(fn, mountID), nil
+	}
+	return "", "", errors.New("fn does not belong to this storage provider: " + fn)
+}
+
+func (s *service) Deref(ctx context.Context, req *storageproviderv0alphapb.DerefRequest) (*storageproviderv0alphapb.DerefResponse, error) {
+	return nil, nil
+}
+
 func (s *service) CreateDirectory(ctx context.Context, req *storageproviderv0alphapb.CreateDirectoryRequest) (*storageproviderv0alphapb.CreateDirectoryResponse, error) {
-	fn := req.GetFilename()
+	fn := req.Filename
 	if err := s.storage.CreateDir(ctx, fn); err != nil {
 		if _, ok := err.(notFoundError); ok {
 			status := &rpcpb.Status{Code: rpcpb.Code_CODE_NOT_FOUND}
 			res := &storageproviderv0alphapb.CreateDirectoryResponse{Status: status}
 			return res, nil
 		}
-		err = errors.Wrap(err, "storageprovidersvc: error creating folder "+fn)
+		err = errors.Wrap(err, "error creating folder "+fn)
 		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.CreateDirectoryResponse{Status: status}
@@ -113,7 +138,7 @@ func (s *service) Delete(ctx context.Context, req *storageproviderv0alphapb.Dele
 	fn := req.GetFilename()
 
 	if err := s.storage.Delete(ctx, fn); err != nil {
-		err := errors.Wrap(err, "storageprovidersvc: error deleting file")
+		err := errors.Wrap(err, "error deleting file")
 		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.DeleteResponse{Status: status}
@@ -142,19 +167,104 @@ func (s *service) Move(ctx context.Context, req *storageproviderv0alphapb.MoveRe
 	return res, nil
 }
 
+func (s *service) splitFn(fsfn string) (string, string, error) {
+	tokens := strings.Split(fsfn, "/")
+	l := len(tokens)
+	if l == 0 {
+		return "", "", errors.New("fsfn is not id-based")
+	}
+
+	fid := tokens[0]
+	if l > 1 {
+		return fid, path.Join(tokens[1:]...), nil
+	}
+	return fid, "", nil
+}
+
+type fnCtx struct {
+	mountPrefix string
+	fsfn        string
+	*derefCtx
+}
+
+type derefCtx struct {
+	derefPath string
+	fid       string
+	rootFidFn string
+}
+
+func (s *service) deref(ctx context.Context, fsfn string) (*derefCtx, error) {
+	if strings.HasPrefix(fsfn, "/") {
+		return &derefCtx{derefPath: fsfn}, nil
+	}
+
+	fid, right, err := s.splitFn(fsfn)
+	if err != nil {
+		return nil, err
+	}
+	// resolve fid to path in the fs
+	fnPointByID, err := s.storage.GetPathByID(ctx, fid)
+	if err != nil {
+		return nil, err
+	}
+
+	derefPath := path.Join(fnPointByID, right)
+	return &derefCtx{derefPath: derefPath, fid: fid, rootFidFn: fnPointByID}, nil
+}
+
+func (s *service) unwrap(ctx context.Context, fn string) (*fnCtx, error) {
+	mp, fsfn, err := s.trimMounPrefix(fn)
+	if err != nil {
+		return nil, err
+	}
+
+	derefCtx, err := s.deref(ctx, fsfn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &fnCtx{
+		derefCtx:    derefCtx,
+		mountPrefix: mp,
+		fsfn:        derefCtx.derefPath,
+	}, nil
+}
+
+func (s *service) wrap(ctx context.Context, fsfn string, fctx *fnCtx) string {
+	if !strings.HasPrefix(fsfn, "/") {
+		fsfn = strings.TrimPrefix(fsfn, fctx.rootFidFn)
+		fsfn = path.Join(fctx.fid, fsfn)
+		fsfn = fctx.mountPrefix + ":" + fsfn
+	} else {
+		fsfn = path.Join(fctx.mountPrefix, fsfn)
+	}
+	return fsfn
+}
+
 func (s *service) Stat(ctx context.Context, req *storageproviderv0alphapb.StatRequest) (*storageproviderv0alphapb.StatResponse, error) {
 	fn := req.GetFilename()
 
-	md, err := s.storage.GetMD(ctx, fn)
+	fctx, err := s.unwrap(ctx, fn)
 	if err != nil {
-		err := errors.Wrap(err, "storageprovidersvc: error stating file")
+		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INVALID}
+		res := &storageproviderv0alphapb.StatResponse{Status: status}
+		return res, nil
+	}
+
+	md, err := s.storage.GetMD(ctx, fctx.derefPath)
+	if err != nil {
+		err := errors.Wrap(err, "error stating file")
 		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.StatResponse{Status: status}
 		return res, nil
 	}
 
-	meta := toMeta(md)
+	obtainedPath := md.Path
+	logger.Println(ctx, "5) fs_path = ", obtainedPath)
+	md.Path = s.wrap(ctx, obtainedPath, fctx)
+
+	meta := s.toMeta(md)
 	status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
 	res := &storageproviderv0alphapb.StatResponse{Status: status, Metadata: meta}
 	return res, nil
@@ -168,13 +278,13 @@ func toPerm(p *storage.Permissions) *storageproviderv0alphapb.Permissions {
 	}
 }
 
-func toMeta(md *storage.MD) *storageproviderv0alphapb.Metadata {
+func (s *service) toMeta(md *storage.MD) *storageproviderv0alphapb.Metadata {
 	perm := toPerm(md.Permissions)
 	meta := &storageproviderv0alphapb.Metadata{
 		Filename:    md.Path,
 		Checksum:    md.Checksum,
 		Etag:        md.Etag,
-		Id:          md.ID,
+		Id:          s.mountID + ":" + md.ID,
 		IsDir:       md.IsDir,
 		Mime:        md.Mime,
 		Mtime:       md.Mtime,
@@ -202,7 +312,7 @@ func (s *service) List(req *storageproviderv0alphapb.ListRequest, stream storage
 
 	for _, md := range mds {
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_OK}
-		meta := toMeta(md)
+		meta := s.toMeta(md)
 		res := &storageproviderv0alphapb.ListResponse{
 			Status:   status,
 			Metadata: meta,
