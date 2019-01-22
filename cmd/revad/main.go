@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strconv"
@@ -40,7 +41,8 @@ func init() {
 	checkFlags()
 	writePIDFile()
 	readConfig()
-	log.OutPath = conf.LogFile
+	log.Out = getLogOutput(conf.LogFile)
+	log.Mode = conf.LogMode
 	if err := log.EnableAll(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		grace.Exit(1)
@@ -49,7 +51,7 @@ func init() {
 
 func main() {
 	tweakCPU()
-	logger.Println(ctx, "logging enabled for the following packages ", log.ListEnabledPackages())
+	printLoggedPkgs()
 
 	grpcSvr := getGRPCServer()
 	httpSvr := getHTTPServer()
@@ -177,7 +179,7 @@ func tweakCPU() error {
 		numCPU = availCPU
 	}
 
-	logger.Printf(ctx, "running revad on %d cpus", numCPU)
+	logger.Printf(ctx, "running on %d cpus", numCPU)
 	runtime.GOMAXPROCS(numCPU)
 	return nil
 }
@@ -193,4 +195,16 @@ func writePIDFile() {
 type coreConfig struct {
 	MaxCPUs string `mapstructure:"max_cpus"`
 	LogFile string `mapstructure:"log_file"`
+	LogMode string `mapstructure:"log_mode"`
+}
+
+func getLogOutput(val string) io.Writer {
+	return os.Stderr
+}
+
+func printLoggedPkgs() {
+	pkgs := log.ListEnabledPackages()
+	for k := range pkgs {
+		logger.Printf(ctx, "logging enabled for package: %s", pkgs[k])
+	}
 }

@@ -12,8 +12,8 @@ import (
 	"github.com/cernbox/reva/pkg/user"
 	usrmgrdemo "github.com/cernbox/reva/pkg/user/manager/demo"
 
-	"github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
-	"github.com/cernbox/go-cs3apis/cs3/rpc"
+	authv0alphapb "github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
+	rpcpb "github.com/cernbox/go-cs3apis/cs3/rpc"
 
 	"github.com/mitchellh/mapstructure"
 )
@@ -45,7 +45,6 @@ type userManagerConfig struct {
 }
 
 func parseConfig(m map[string]interface{}) (*config, error) {
-	logger.Println(ctx, m)
 	c := &config{}
 	if err := mapstructure.Decode(m, c); err != nil {
 		return nil, err

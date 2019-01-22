@@ -1,23 +1,26 @@
 [core]
-log_file = "stdout"
+log_file = "stderr"
+log_mode = "prod"
 max_cpus = "32"
 
 [grpc]
 network = "tcp"
 address = "0.0.0.0:9999"
-access_log = "/var/log/revad/grpc-access.log"
+access_log = "stderr"
 tls_enabled = true
 tls_cert = "/etc/gridsecurity/host.cert"
 tls_key = "/etc/gridsecurity/host.key"
 enabled_services = ["storage_provider_svc", "auth_svc", "storage_broker_svc"]
 
 [http]
-enabled_services = ["prometheus_svc", "webui_svc"]
+enabled_services = ["prometheus_svc", "webui_svc", "ocdav_svc"]
 network = "tcp"
 address = "0.0.0.0:9998"
 
 [grpc.storage_provider_svc]
 driver = "local"
+mount_path = "/local"
+mount_id = "123e4567-e89b-12d3-a456-426655440000"
 
 [grpc.auth_svc.auth_manager]
 driver = "demo"
@@ -40,15 +43,15 @@ root = "/tmp"
 driver = "static"
 
 [grpc.storage_broker_svc.static.rules]
-"/" = "localhost:9999"
+"/local" = "localhost:9999"
+"123e4567-e89b-12d3-a456-426655440000" = "localhost:9999"
 
 [http.prometheus_svc]
-path = "/metrics"
+prefix = "metrics"
 
 [http.webui_svc]
-path = "/ui"
-storage_provider_svc = "localhost:9999"
+prefix = "ui"
 
-[http.webdav_svc]
-path = "/webdav"
-storage_provider_svc = "localhost:9999"
+[http.ocdav_svc]
+prefix = "webdav"
+storageprovidersvc = "localhost:9999"

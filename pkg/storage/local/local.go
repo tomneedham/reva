@@ -60,6 +60,7 @@ func (fs *localFS) normalize(fi os.FileInfo, fn string) *storage.MD {
 		ID:          "fileid-" + strings.TrimPrefix(fn, "/"),
 		Etag:        fmt.Sprintf("%d", fi.ModTime().Unix()),
 		Permissions: &storage.Permissions{Read: true, Write: true, Share: true},
+		Mtime:       uint64(fi.ModTime().Unix()),
 	}
 	return md
 }

@@ -3,148 +3,154 @@ package log
 import (
 	"context"
 	"fmt"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"io"
-	golog "log"
 	"os"
+
+	"github.com/rs/zerolog"
 )
 
-var nop = &nopLogger{}
-var prefixes = []string{}
-var enabledLoggers map[string]logger = map[string]logger{}
+func init() {
+	zerolog.CallerSkipFrameCount = 4
+}
+
+var pkgs = []string{}
+var enabledLoggers = map[string]*zerolog.Logger{}
+
+// Out is the log output writer
 var Out io.Writer = os.Stderr
-var OutPath string = "stderr"
 
+// Mode dev prints in console format and prod in json output
+var Mode = "dev"
+
+// Logger is the main logging element
 type Logger struct {
-	prefix string
-	pid    int
+	pkg string
+	pid int
 }
 
-type logger interface {
-	Println(ctx context.Context, args ...interface{})
-	Printf(ctx context.Context, format string, v ...interface{})
-	Error(ctx context.Context, err error)
-	Panic(ctx context.Context, reason string)
-}
-
+// ListRegisteredPackages returns the name of the packages a log has been registered.s
 func ListRegisteredPackages() []string {
-	return prefixes
+	return pkgs
 }
 
+// ListEnabledPackages returns a list with the name of log-enabled packages.
 func ListEnabledPackages() []string {
 	pkgs := []string{}
-	for k, _ := range enabledLoggers {
+	for k := range enabledLoggers {
 		pkgs = append(pkgs, k)
 	}
 	return pkgs
 }
 
+// EnableAll enables all registered loggers
 func EnableAll() error {
-	for _, v := range prefixes {
+	for _, v := range pkgs {
 		if err := Enable(v); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-func Enable(prefix string) error {
-	l, err := create(prefix)
-	if err != nil {
-		return err
-	}
-	enabledLoggers[prefix] = l
+
+// Enable enables a specific logger with its package name
+func Enable(pkg string) error {
+	l := create(pkg)
+	enabledLoggers[pkg] = l
 	return nil
 }
 
+// Disable a specific logger by its package name
 func Disable(prefix string) {
-	enabledLoggers[prefix] = nop
+	nop := zerolog.Nop()
+	enabledLoggers[prefix] = &nop
 }
 
-func create(prefix string) (*internalLogger, error) {
-	// add whitespace to stdlogger prefix so it is not appended to the date
-	stdLogger := golog.New(Out, prefix+" ", golog.LstdFlags|golog.LUTC)
-	zapConfig := zap.NewProductionConfig()
-	zapConfig.OutputPaths = []string{OutPath}
-	zapConfig.Encoding = "console"
-	zapConfig.EncoderConfig = zap.NewProductionEncoderConfig()
-	zapConfig.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	zapLogger, err := zapConfig.Build(zap.AddCallerSkip(2))
-	if err != nil {
-		return nil, err
-	}
-	zapLogger = zapLogger.Named(prefix)
-	internalLogger := &internalLogger{prefix: prefix, stdLogger: stdLogger, pid: os.Getpid(), zapLogger: zapLogger}
-	return internalLogger, nil
+func create(pkg string) *zerolog.Logger {
+	pid := os.Getpid()
+	zl := createLog(pkg, pid)
+	l := zl.With().Str("pkg", pkg).Int("pid", pid).Logger()
+	return &l
 }
 
-func New(prefix string) *Logger {
-	prefixes = append(prefixes, prefix)
-	enabledLoggers[prefix] = nop
-	logger := &Logger{prefix: prefix}
+// New returns a new Logger
+func New(pkg string) *Logger {
+	pkgs = append(pkgs, pkg)
+	nop := zerolog.Nop()
+	enabledLoggers[pkg] = &nop
+	logger := &Logger{pkg: pkg}
 	return logger
 }
 
-func findEnabledLogger(prefix string) logger {
-	return enabledLoggers[prefix]
+func find(pkg string) *zerolog.Logger {
+	l := enabledLoggers[pkg]
+	return l
 }
 
+// Builder allows to contruct log step by step
+type Builder struct {
+	event *zerolog.Event
+	l     *Logger
+}
+
+// Str add a string to the builder
+func (b *Builder) Str(key, val string) *Builder {
+	b.event = b.event.Str(key, val)
+	return b
+}
+
+// Int adds an int to the builder
+func (b *Builder) Int(key string, val int) *Builder {
+	b.event = b.event.Int(key, val)
+	return b
+}
+
+// Msg write the message with any fields stored
+func (b *Builder) Msg(ctx context.Context, msg string) {
+	b.event.Str("trace", getTrace(ctx)).Msg(msg)
+}
+
+// Build allocates a new Builder
+func (l *Logger) Build() *Builder {
+	return &Builder{l: l, event: enabledLoggers[l.pkg].Info()}
+}
+
+// Println prints in info level
 func (l *Logger) Println(ctx context.Context, args ...interface{}) {
-	internalLogger := findEnabledLogger(l.prefix)
-	internalLogger.Println(ctx, args...)
+	zl := find(l.pkg)
+	zl.Info().Str("trace", getTrace(ctx)).Msg(fmt.Sprint(args...))
 }
 
+// Printf prints in info level
 func (l *Logger) Printf(ctx context.Context, format string, args ...interface{}) {
-	internalLogger := findEnabledLogger(l.prefix)
-	internalLogger.Printf(ctx, format, args...)
+	zl := find(l.pkg)
+	zl.Info().Str("trace", getTrace(ctx)).Msg(fmt.Sprintf(format, args...))
 }
 
+// Error prints in error level
 func (l *Logger) Error(ctx context.Context, err error) {
-	internalLogger := findEnabledLogger(l.prefix)
-	internalLogger.Error(ctx, err)
+	zl := find(l.pkg)
+	zl.Error().Str("trace", getTrace(ctx)).Msg(err.Error())
 }
 
+// Panic prints in error levzel a stack trace
 func (l *Logger) Panic(ctx context.Context, reason string) {
-	internalLogger := findEnabledLogger(l.prefix)
-	internalLogger.Panic(ctx, reason)
+	zl := find(l.pkg)
+	zl.Error().Str("trace", getTrace(ctx)).Msg(reason)
 }
 
-type internalLogger struct {
-	pid       int
-	prefix    string
-	stdLogger *golog.Logger
-	zapLogger *zap.Logger
+func createLog(pkg string, pid int) *zerolog.Logger {
+	zlog := zerolog.New(os.Stderr).With().Str("pkg", pkg).Int("pid", pid).Timestamp().Caller().Logger()
+	if Mode == "" || Mode == "dev" {
+		zlog = zlog.Output(zerolog.ConsoleWriter{Out: Out})
+	} else {
+		zlog = zlog.Output(Out)
+	}
+	return &zlog
 }
 
-func (l *internalLogger) Println(ctx context.Context, args ...interface{}) {
-	msg := fmt.Sprint(args...)
-	l.zapLogger.Info(msg, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
-}
-
-func (l *internalLogger) Printf(ctx context.Context, format string, v ...interface{}) {
-	msg := fmt.Sprintf(format, v...)
-	l.zapLogger.Info(msg, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
-}
-
-func (l *internalLogger) Error(ctx context.Context, err error) {
-	msg := err.Error()
-	l.zapLogger.Info(msg, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
-}
-
-func (l *internalLogger) Panic(ctx context.Context, reason string) {
-	l.zapLogger.Error(reason, zap.String("trace", l.extractTrace(ctx)), zap.Int("pid", l.pid))
-}
-
-func (l *internalLogger) extractTrace(ctx context.Context) string {
+func getTrace(ctx context.Context) string {
 	if v, ok := ctx.Value("trace").(string); ok {
 		return v
 	}
-	return "00000000-0000-0000-0000-000000000000"
+	return ""
 }
-
-type nopLogger struct{}
-
-func (l *nopLogger) Println(ctx context.Context, args ...interface{})            {}
-func (l *nopLogger) Printf(ctx context.Context, format string, v ...interface{}) {}
-func (l *nopLogger) Error(ctx context.Context, err error)                        {}
-func (l *nopLogger) Panic(ctx context.Context, reason string)                    {}

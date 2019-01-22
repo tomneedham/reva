@@ -11,13 +11,15 @@ import (
 	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
 	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
-	"github.com/cernbox/reva/services/grpc/authsvc"
-	"github.com/cernbox/reva/services/grpc/interceptors"
-	"github.com/cernbox/reva/services/grpc/storagebrokersvc"
-	"github.com/cernbox/reva/services/grpc/storageprovidersvc"
+	"github.com/cernbox/reva/services/grpcsvc/authsvc"
+	"github.com/cernbox/reva/services/grpcsvc/interceptors"
+	"github.com/cernbox/reva/services/grpcsvc/storagebrokersvc"
+	"github.com/cernbox/reva/services/grpcsvc/storageprovidersvc"
+
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -102,7 +104,6 @@ func (s *Server) registerServices() error {
 				return errors.Wrap(err, "unable to register service "+k)
 			}
 			storageproviderv0alphapb.RegisterStorageProviderServiceServer(s.s, svc)
-			logger.Printf(ctx, "service %s registered", k)
 			enabled = append(enabled, k)
 		case "auth_svc":
 			svc, err := authsvc.New(s.conf.AuthSvc)
@@ -110,7 +111,6 @@ func (s *Server) registerServices() error {
 				return errors.Wrap(err, "unable to register service "+k)
 			}
 			authv0alphapb.RegisterAuthServiceServer(s.s, svc)
-			logger.Printf(ctx, "service %s registered", k)
 			enabled = append(enabled, k)
 
 		case "storage_broker_svc":
@@ -119,14 +119,15 @@ func (s *Server) registerServices() error {
 				return errors.Wrap(err, "unable to register service "+k)
 			}
 			storagebrokerv0alphapb.RegisterStorageBrokerServiceServer(s.s, svc)
-			logger.Printf(ctx, "service %s registered", k)
 			enabled = append(enabled, k)
 		}
 	}
 	if len(enabled) == 0 {
 		logger.Println(ctx, "no services enabled")
 	} else {
-		logger.Println(ctx, "grpc enabled for the following services ", enabled)
+		for k := range enabled {
+			logger.Printf(ctx, "grpc service enabled: %s", enabled[k])
+		}
 	}
 	return nil
 }
