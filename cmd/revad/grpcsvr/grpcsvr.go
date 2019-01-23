@@ -136,15 +136,15 @@ func getOpts() []grpc.ServerOption {
 	opts := []grpc.ServerOption{
 		grpc.UnaryInterceptor(
 			grpc_middleware.ChainUnaryServer(
+				grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryFunc)),
 				interceptors.TraceUnaryServerInterceptor(),
 				interceptors.LogUnaryServerInterceptor(),
-				grpc_prometheus.UnaryServerInterceptor,
-				grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryFunc)))),
+				grpc_prometheus.UnaryServerInterceptor)),
 		grpc.StreamInterceptor(
 			grpc_middleware.ChainStreamServer(
+				grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryFunc)),
 				interceptors.TraceStreamServerInterceptor(),
-				grpc_prometheus.StreamServerInterceptor,
-				grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryFunc)))),
+				grpc_prometheus.StreamServerInterceptor)),
 	}
 	return opts
 }

@@ -298,7 +298,6 @@ func (s *service) Write(stream storageproviderv0alphapb.StorageProviderService_W
 
 		sessionFolder := s.getSessionFolder(req.SessionId)
 		chunkFile := filepath.Join(sessionFolder, fmt.Sprintf("%d-%d", req.Offset, req.Length))
-		fmt.Println("chunk offset: ", req.Offset)
 		fd, err := os.OpenFile(chunkFile, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0600)
 		defer fd.Close()
 		if err != nil {

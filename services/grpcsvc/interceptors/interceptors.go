@@ -23,7 +23,11 @@ func TraceUnaryServerInterceptor() grpc.UnaryServerInterceptor {
 		var trace string
 		md, ok := metadata.FromIncomingContext(ctx)
 		if ok && md != nil {
-			trace = md["x-trace"][0]
+			if val, ok := md["x-trace"]; ok {
+				if len(val) > 0 {
+					trace = val[0]
+				}
+			}
 		} else {
 			trace = uuid.Must(uuid.NewV4()).String()
 		}
@@ -37,7 +41,11 @@ func TraceStreamServerInterceptor() grpc.StreamServerInterceptor {
 		var trace string
 		md, ok := metadata.FromIncomingContext(ss.Context())
 		if ok && md != nil {
-			trace = md["x-trace"][0]
+			if val, ok := md["x-trace"]; ok {
+				if len(val) > 0 {
+					trace = val[0]
+				}
+			}
 		} else {
 			trace = uuid.Must(uuid.NewV4()).String()
 		}

@@ -3,6 +3,7 @@ package log
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"io"
 	"os"
 
@@ -135,7 +136,9 @@ func (l *Logger) Error(ctx context.Context, err error) {
 // Panic prints in error levzel a stack trace
 func (l *Logger) Panic(ctx context.Context, reason string) {
 	zl := find(l.pkg)
-	zl.Error().Str("trace", getTrace(ctx)).Msg(reason)
+	stack := debug.Stack()
+	msg := reason +"\n"+string(stack)
+	zl.Error().Str("trace", getTrace(ctx)).Bool("panic", true).Msg(msg)
 }
 
 func createLog(pkg string, pid int) *zerolog.Logger {

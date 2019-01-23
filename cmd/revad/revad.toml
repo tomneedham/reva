@@ -1,6 +1,6 @@
 [core]
 log_file = "stderr"
-log_mode = "prod"
+log_mode = "dev"
 max_cpus = "32"
 
 [grpc]
