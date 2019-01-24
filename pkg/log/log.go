@@ -3,9 +3,9 @@ package log
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 	"io"
 	"os"
+	"runtime/debug"
 
 	"github.com/rs/zerolog"
 )
@@ -137,7 +137,7 @@ func (l *Logger) Error(ctx context.Context, err error) {
 func (l *Logger) Panic(ctx context.Context, reason string) {
 	zl := find(l.pkg)
 	stack := debug.Stack()
-	msg := reason +"\n"+string(stack)
+	msg := reason + "\n" + string(stack)
 	zl.Error().Str("trace", getTrace(ctx)).Bool("panic", true).Msg(msg)
 }
 

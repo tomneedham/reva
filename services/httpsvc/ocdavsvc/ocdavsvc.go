@@ -71,6 +71,12 @@ func (s *svc) setHandler() {
 		case "MKCOL":
 			s.doMkcol(w, r)
 			return
+		case "MOVE":
+			s.doMove(w, r)
+			return
+		case "PUT":
+			s.doPut(w, r)
+			return
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

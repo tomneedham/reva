@@ -21,6 +21,7 @@ func main() {
 		uploadCommand(),
 		downloadCommand(),
 		rmCommand(),
+		moveCommand(),
 		mkdirCommand(),
 		brokerFindCommand(),
 	}

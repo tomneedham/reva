@@ -13,10 +13,7 @@ import (
 
 // LogHandler is a logging middleware
 func LogHandler(l *log.Logger, h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h = newLoggingHandler(l, h)
-		h.ServeHTTP(w, r)
-	})
+	return newLoggingHandler(l, h)
 }
 
 func newLoggingHandler(l *log.Logger, h http.Handler) http.Handler {
@@ -70,12 +67,13 @@ func writeLog(l *log.Logger, req *http.Request, url url.URL, ts time.Time, statu
 	}
 
 	diff := end.Sub(ts).Nanoseconds()
+
 	e := l.Build().Str("host", host).Str("method", req.Method)
 	e = e.Str("uri", uri).Str("proto", req.Proto).Int("status", status)
 	e = e.Int("size", size)
 	e = e.Str("start", ts.Format("02/Jan/2006:15:04:05 -0700"))
 	e = e.Str("end", end.Format("02/Jan/2006:15:04:05 -0700")).Int("time_ns", int(diff))
-	e.Msg(req.Context(), " ")
+	e.Msg(req.Context(), "HTTP request finished")
 }
 
 type loggingResponseWriter interface {

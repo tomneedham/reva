@@ -174,6 +174,11 @@ func (s *service) Stat(ctx context.Context, req *storageproviderv0alphapb.StatRe
 
 	md, err := s.storage.GetMD(ctx, fsfn)
 	if err != nil {
+		if _, ok := err.(notFoundError); ok {
+			status := &rpcpb.Status{Code: rpcpb.Code_CODE_NOT_FOUND}
+			res := &storageproviderv0alphapb.StatResponse{Status: status}
+			return res, nil
+		}
 		err := errors.Wrap(err, "error stating file")
 		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
