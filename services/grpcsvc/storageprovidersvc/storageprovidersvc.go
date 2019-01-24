@@ -448,7 +448,7 @@ func (s *service) FinishWriteSession(ctx context.Context, req *storageproviderv0
 
 	xsComputed := fmt.Sprintf("%x", xs.Sum(nil))
 	logger.Printf(ctx, "computed checksum: %s", xsComputed)
-	if "md5:"+xsComputed != req.Checksum {
+	if req.Checksum != "" && "md5:"+xsComputed != req.Checksum {
 		err := fmt.Errorf("checksum mismatch between sent=%s and computed=%s", req.Checksum, xsComputed)
 		err = errors.Wrap(err, "file corrupted got corrupted")
 		logger.Error(ctx, err)
@@ -538,7 +538,7 @@ func (s *service) Read(req *storageproviderv0alphapb.ReadRequest, stream storage
 		logger.Error(ctx, err)
 		status := &rpcpb.Status{Code: rpcpb.Code_CODE_INTERNAL}
 		res := &storageproviderv0alphapb.ReadResponse{Status: status}
-		if err = stream.Send(res); err != nil {
+		if err = stream.Send(res); err == nil {
 			return errors.Wrap(err, "storageprovidersvc: error streaming read response")
 		}
 		return nil
@@ -956,13 +956,10 @@ func (s *service) unwrap(ctx context.Context, fn string) (string, *fnCtx, error)
 		derefCtx:    derefCtx,
 		mountPrefix: mp,
 	}
-	logger.Printf(ctx, "1) unwrap fctx = %+v fsfn = %s", fctx, fsfn)
 	return fsfn, fctx, nil
 }
 
 func (s *service) wrap(ctx context.Context, fsfn string, fctx *fnCtx) string {
-	logger.Printf(ctx, "1) wrap: fctx = %+v fsfn = %s", fctx, fsfn)
-
 	if !strings.HasPrefix(fsfn, "/") {
 		fsfn = strings.TrimPrefix(fsfn, fctx.rootFidFn)
 		fsfn = path.Join(fctx.fid, fsfn)
@@ -971,7 +968,6 @@ func (s *service) wrap(ctx context.Context, fsfn string, fctx *fnCtx) string {
 		fsfn = path.Join(fctx.mountPrefix, fsfn)
 	}
 
-	logger.Printf(ctx, "2) wrap: fctx = %+v fsfn = %s", fctx, fsfn)
 	return fsfn
 }
 

@@ -80,10 +80,6 @@ func isContentRange(r *http.Request) bool {
 	return r.Header.Get("Content-Range") != ""
 }
 
-func (s *svc) doPutChunked(w http.ResponseWriter, r *http.Request) {
-
-}
-
 func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	fn := r.URL.Path
@@ -115,6 +111,7 @@ func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 	if sufferMacOSFinder(r) {
 		err := handleMacOSFinder(w, r)
 		if err != nil {
+			logger.Error(ctx, err)
 			return
 		}
 	}
@@ -172,7 +169,7 @@ func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if res2.Status.Code != rpcpb.Code_CODE_OK {
-		logger.Println(ctx, res.Status)
+		logger.Println(ctx, res2.Status)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -189,7 +186,7 @@ func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 
 	buffer := make([]byte, 1024*1024*3)
 	var offset uint64
-	//var numChunks uint64
+	var numChunks uint64
 
 	for {
 		n, err := r.Body.Read(buffer)
@@ -201,6 +198,9 @@ func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+
+			numChunks++
+			offset += uint64(n)
 		}
 
 		if err == io.EOF {
@@ -208,7 +208,7 @@ func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err != nil {
-			logger.Println(ctx, err)
+			logger.Error(ctx, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -221,7 +221,7 @@ func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if res3.Status.Code == rpcpb.Code_CODE_OK {
+	if res3.Status.Code != rpcpb.Code_CODE_OK {
 		logger.Println(ctx, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -248,7 +248,7 @@ func (s *svc) doPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if res.Status.Code == rpcpb.Code_CODE_OK {
+	if res.Status.Code != rpcpb.Code_CODE_OK {
 		logger.Println(ctx, res.Status)
 		w.WriteHeader(http.StatusInternalServerError)
 		return

@@ -128,6 +128,8 @@ func (s *Server) getHandler() http.Handler {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var head string
 		head, r.URL.Path = httpsvc.ShiftPath(r.URL.Path)
+		//logger.Println(r.Context(), "http routing: head=", head, " tail=", r.URL.Path)
+
 		if h, ok := s.svcs[head]; ok {
 			h.ServeHTTP(w, r)
 			return

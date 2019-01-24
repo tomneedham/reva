@@ -36,6 +36,10 @@ func (s *svc) doPropfind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if res.Status.Code != rpcpb.Code_CODE_OK {
+		if res.Status.Code == rpcpb.Code_CODE_NOT_FOUND {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		logger.Println(ctx, res.Status)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -76,6 +80,8 @@ func (s *svc) doPropfind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	propRes, _ := s.formatPropfind(ctx, fn, mds)
+	w.Header().Set("DAV", "1, 3, extended-mkcol")
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.WriteHeader(http.StatusMultiStatus)
 	w.Write([]byte(propRes))
 }
@@ -162,7 +168,7 @@ func (s *svc) mdToPropResponse(ctx context.Context, md *storageproviderv0alphapb
 	if err := xml.EscapeText(&fileIDEscaped, []byte(md.Id)); err != nil {
 		panic(err)
 	}
-	ocID := s.newProp("oc:fileid", fileIDEscaped.String())
+	ocID := s.newProp("oc:id", fileIDEscaped.String())
 	propList = append(propList, ocID)
 
 	// PropStat, only HTTP/1.1 200 is sent.
@@ -175,7 +181,8 @@ func (s *svc) mdToPropResponse(ctx context.Context, md *storageproviderv0alphapb
 
 	response := responseXML{}
 
-	ref := path.Join("/", s.prefix, md.Filename)
+	baseURI := ctx.Value("baseuri").(string)
+	ref := path.Join(baseURI, md.Filename)
 	if md.IsDir {
 		ref += "/"
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	zerolog.CallerSkipFrameCount = 4
+	zerolog.CallerSkipFrameCount = 3
 }
 
 var pkgs = []string{}
@@ -113,6 +113,11 @@ func (b *Builder) Msg(ctx context.Context, msg string) {
 // Build allocates a new Builder
 func (l *Logger) Build() *Builder {
 	return &Builder{l: l, event: enabledLoggers[l.pkg].Info()}
+}
+
+// BuildError allocates a new Builder with error level
+func (l *Logger) BuildError() *Builder {
+	return &Builder{l: l, event: enabledLoggers[l.pkg].Error()}
 }
 
 // Println prints in info level

@@ -19,7 +19,7 @@ address = "0.0.0.0:9998"
 
 [grpc.storage_provider_svc]
 driver = "local"
-mount_path = "/local"
+mount_path = "/"
 mount_id = "123e4567-e89b-12d3-a456-426655440000"
 
 [grpc.auth_svc.auth_manager]
@@ -37,7 +37,7 @@ root_uid = 0
 root_gid = 0
 
 [grpc.storage_provider_svc.local]
-root = "/tmp"
+root = "/var/tmp/owncloud/data"
 
 [grpc.storage_broker_svc]
 driver = "static"
@@ -53,5 +53,6 @@ prefix = "metrics"
 prefix = "ui"
 
 [http.ocdav_svc]
-prefix = "webdav"
+prefix = "owncloud"
+chunk_folder = "/var/tmp/owncloud/chunks"
 storageprovidersvc = "localhost:9999"

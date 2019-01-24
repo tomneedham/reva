@@ -48,13 +48,15 @@ func (s *svc) doMove(w http.ResponseWriter, r *http.Request) {
 	}
 
 	urlPath := dstURL.Path
-	i := strings.Index(urlPath, s.Prefix())
+	baseURI := r.Context().Value("baseuri").(string)
+	logger.Println(r.Context(), "Move urlPath=", urlPath, " baseURI=", baseURI)
+	i := strings.Index(urlPath, baseURI)
 	if i == -1 {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	dst := urlPath[len(s.Prefix())+1:]
+	dst := urlPath[len(baseURI):]
 
 	req := &storageproviderv0alphapb.MoveRequest{SourceFilename: src, TargetFilename: dst}
 	res, err := client.Move(ctx, req)

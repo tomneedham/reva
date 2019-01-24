@@ -68,12 +68,18 @@ func writeLog(l *log.Logger, req *http.Request, url url.URL, ts time.Time, statu
 
 	diff := end.Sub(ts).Nanoseconds()
 
-	e := l.Build().Str("host", host).Str("method", req.Method)
-	e = e.Str("uri", uri).Str("proto", req.Proto).Int("status", status)
-	e = e.Int("size", size)
-	e = e.Str("start", ts.Format("02/Jan/2006:15:04:05 -0700"))
-	e = e.Str("end", end.Format("02/Jan/2006:15:04:05 -0700")).Int("time_ns", int(diff))
-	e.Msg(req.Context(), "HTTP request finished")
+	var b *log.Builder
+	if status >= 400 {
+		b = l.BuildError()
+	} else {
+		b = l.Build()
+	}
+	b.Str("host", host).Str("method", req.Method)
+	b = b.Str("uri", uri).Str("proto", req.Proto).Int("status", status)
+	b = b.Int("size", size)
+	b = b.Str("start", ts.Format("02/Jan/2006:15:04:05 -0700"))
+	b = b.Str("end", end.Format("02/Jan/2006:15:04:05 -0700")).Int("time_ns", int(diff))
+	b.Msg(req.Context(), "HTTP request finished")
 }
 
 type loggingResponseWriter interface {
