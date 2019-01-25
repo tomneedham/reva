@@ -17,14 +17,14 @@ func uploadCommand() *command {
 	cmd := newCommand("upload")
 	cmd.Description = func() string { return "upload a local file to the remote server" }
 	cmd.Action = func() error {
-		fn := "/"
-		if cmd.NArg() < 2 {
+		if cmd.NArg() < 3 {
 			fmt.Println(cmd.Usage())
 			os.Exit(1)
 		}
 
-		fn = cmd.Args()[0]
-		target := cmd.Args()[1]
+		provider := cmd.Args()[0]
+		fn := cmd.Args()[1]
+		target := cmd.Args()[2]
 
 		fd, err := os.Open(fn)
 		if err != nil {
@@ -36,7 +36,7 @@ func uploadCommand() *command {
 		}
 		defer fd.Close()
 
-		client, err := getStorageProviderClient()
+		client, err := getStorageProviderClient(provider)
 		if err != nil {
 			return err
 		}

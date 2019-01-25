@@ -1,4 +1,4 @@
-package webuisvc
+package iframeuisvc
 
 import (
 	"net/http"
@@ -36,19 +36,28 @@ func (s *svc) Handler() http.Handler {
 
 func getHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		html := `
-		<!DOCTYPE html>
-		<html>
-		<body>
-		
-		<h1>Load Phoenix</h1>
-		
-		</body>
-		<script type="text/javascript">
-		alert("hello!");
-		</script>
-		</html> s
-		`
-		w.Write([]byte(html))
+		var head string
+		head, r.URL.Path = httpsvc.ShiftPath(r.URL.Path)
+		if head == "open" {
+			doOpen(w, r)
+			return
+		}
 	})
+}
+
+func doOpen(w http.ResponseWriter, r *http.Request) {
+	html := `
+<!DOCTYPE html>
+<html>
+<body>
+
+<h1>Markdown Editor</h1>
+
+</body>
+<script type="text/javascript">
+alert("hello!");
+</script>
+</html>
+	`
+	w.Write([]byte(html))
 }

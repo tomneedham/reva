@@ -10,10 +10,10 @@ access_log = "stderr"
 tls_enabled = true
 tls_cert = "/etc/gridsecurity/host.cert"
 tls_key = "/etc/gridsecurity/host.key"
-enabled_services = ["storage_provider_svc", "auth_svc", "storage_broker_svc"]
+enabled_services = ["storage_provider_svc", "auth_svc", "storage_broker_svc", "app_registry_svc", "app_provider_svc"]
 
 [http]
-enabled_services = ["prometheus_svc", "webui_svc", "ocdav_svc"]
+enabled_services = ["prometheus_svc", "webui_svc", "ocdav_svc", "iframe_ui_svc"]
 network = "tcp"
 address = "0.0.0.0:9998"
 
@@ -43,8 +43,21 @@ root = "/var/tmp/owncloud/data"
 driver = "static"
 
 [grpc.storage_broker_svc.static.rules]
-"/local" = "localhost:9999"
+"/" = "localhost:9999"
 "123e4567-e89b-12d3-a456-426655440000" = "localhost:9999"
+
+[grpc.app_registry_svc]
+driver = "static"
+
+[grpc.app_registry_svc.static.rules]
+".txt" = "localhost:9999"
+"txt/plain" = "localhost:9999"
+
+[grpc.app_provider_svc]
+driver = "demo"
+
+[grpc.app_provider_svc.demo]
+iframe_ui_provider = "http://localhost:9998/iframeuisvc"
 
 [http.prometheus_svc]
 prefix = "metrics"
@@ -56,3 +69,6 @@ prefix = "ui"
 prefix = "owncloud"
 chunk_folder = "/var/tmp/owncloud/chunks"
 storageprovidersvc = "localhost:9999"
+
+[http.iframe_ui_svc]
+prefix = "iframeuisvc"

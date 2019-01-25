@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
 
 	rpcpb "github.com/cernbox/go-cs3apis/cs3/rpc"
 	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
@@ -11,12 +13,15 @@ func rmCommand() *command {
 	cmd := newCommand("rm")
 	cmd.Description = func() string { return "removes a file or folder" }
 	cmd.Action = func() error {
-		fn := "/"
-		if cmd.NArg() >= 1 {
-			fn = cmd.Args()[0]
+		if cmd.NArg() < 2 {
+			fmt.Println(cmd.Usage())
+			os.Exit(1)
 		}
+
+		provider := cmd.Args()[0]
+		fn := cmd.Args()[1]
 		ctx := context.Background()
-		client, err := getStorageProviderClient()
+		client, err := getStorageProviderClient(provider)
 		if err != nil {
 			return err
 		}

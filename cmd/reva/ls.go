@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	rpcpb "github.com/cernbox/go-cs3apis/cs3/rpc"
 	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
@@ -14,12 +15,14 @@ func lsCommand() *command {
 	cmd.Description = func() string { return "list a folder contents" }
 	longFlag := cmd.Bool("l", false, "long listing")
 	cmd.Action = func() error {
-		fn := "/"
-		if cmd.NArg() >= 1 {
-			fn = cmd.Args()[0]
+		if cmd.NArg() < 2 {
+			fmt.Println(cmd.Usage())
+			os.Exit(1)
 		}
 
-		client, err := getStorageProviderClient()
+		provider := cmd.Args()[0]
+		fn := cmd.Args()[1]
+		client, err := getStorageProviderClient(provider)
 		if err != nil {
 			return err
 		}

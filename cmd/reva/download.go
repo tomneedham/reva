@@ -17,15 +17,16 @@ func downloadCommand() *command {
 	cmd.Description = func() string { return "download a remote file into the local filesystem" }
 	cmd.Action = func() error {
 		fn := "/"
-		if cmd.NArg() < 2 {
+		if cmd.NArg() < 3 {
 			fmt.Println(cmd.Usage())
 			os.Exit(1)
 		}
 
-		fn = cmd.Args()[0]
-		target := cmd.Args()[1]
+		provider := cmd.Args()[0]
+		fn = cmd.Args()[1]
+		target := cmd.Args()[2]
 
-		client, err := getStorageProviderClient()
+		client, err := getStorageProviderClient(provider)
 		if err != nil {
 			return err
 		}

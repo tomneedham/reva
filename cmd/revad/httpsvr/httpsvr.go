@@ -13,6 +13,7 @@ import (
 	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
 	"github.com/cernbox/reva/services/httpsvc/handlers"
+	"github.com/cernbox/reva/services/httpsvc/iframeuisvc"
 	"github.com/cernbox/reva/services/httpsvc/ocdavsvc"
 	"github.com/cernbox/reva/services/httpsvc/prometheussvc"
 	"github.com/cernbox/reva/services/httpsvc/webuisvc"
@@ -33,6 +34,7 @@ type config struct {
 	WebUISvc        map[string]interface{} `mapstructure:"webui_svc"`
 	OCDAVSvc        map[string]interface{} `mapstructure:"ocdav_svc"`
 	PromSvc         map[string]interface{} `mapstructure:"prometheus_svc"`
+	IFrameUISvc     map[string]interface{} `mapstructure:"iframe_ui_svc"`
 }
 
 // Server contains the server info.
@@ -99,6 +101,8 @@ func (s *Server) registerServices() error {
 			svc, err = ocdavsvc.New(s.conf.OCDAVSvc)
 		case "prometheus_svc":
 			svc, err = prometheussvc.New(s.conf.PromSvc)
+		case "iframe_ui_svc":
+			svc, err = iframeuisvc.New(s.conf.IFrameUISvc)
 		}
 
 		if err != nil {

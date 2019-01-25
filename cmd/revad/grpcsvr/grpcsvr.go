@@ -7,10 +7,17 @@ import (
 
 	storagebrokerv0alphapb "github.com/cernbox/go-cs3apis/cs3/storagebroker/v0alpha"
 
+	appproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/appprovider/v0alpha"
+
+	appregistryv0alphapb "github.com/cernbox/go-cs3apis/cs3/appregistry/v0alpha"
 	authv0alphapb "github.com/cernbox/go-cs3apis/cs3/auth/v0alpha"
 	storageproviderv0alphapb "github.com/cernbox/go-cs3apis/cs3/storageprovider/v0alpha"
+
 	"github.com/cernbox/reva/pkg/err"
 	"github.com/cernbox/reva/pkg/log"
+	"github.com/cernbox/reva/services/grpcsvc/appprovidersvc"
+	"github.com/cernbox/reva/services/grpcsvc/appregistrysvc"
+
 	"github.com/cernbox/reva/services/grpcsvc/authsvc"
 	"github.com/cernbox/reva/services/grpcsvc/interceptors"
 	"github.com/cernbox/reva/services/grpcsvc/storagebrokersvc"
@@ -39,6 +46,8 @@ type config struct {
 	StorageProviderSvc map[string]interface{} `mapstructure:"storage_provider_svc"`
 	AuthSvc            map[string]interface{} `mapstructure:"auth_svc"`
 	StorageBrokerSvc   map[string]interface{} `mapstructure:"storage_broker_svc"`
+	AppRegistrySvc     map[string]interface{} `mapstructure:"app_registry_svc"`
+	AppProviderSvc     map[string]interface{} `mapstructure:"app_provider_svc"`
 }
 
 type Server struct {
@@ -119,6 +128,20 @@ func (s *Server) registerServices() error {
 				return errors.Wrap(err, "unable to register service "+k)
 			}
 			storagebrokerv0alphapb.RegisterStorageBrokerServiceServer(s.s, svc)
+			enabled = append(enabled, k)
+		case "app_registry_svc":
+			svc, err := appregistrysvc.New(s.conf.AppRegistrySvc)
+			if err != nil {
+				return errors.Wrap(err, "unable to register service "+k)
+			}
+			appregistryv0alphapb.RegisterAppRegistryServiceServer(s.s, svc)
+			enabled = append(enabled, k)
+		case "app_provider_svc":
+			svc, err := appprovidersvc.New(s.conf.AppProviderSvc)
+			if err != nil {
+				return errors.Wrap(err, "unable to register service "+k)
+			}
+			appproviderv0alphapb.RegisterAppProviderServiceServer(s.s, svc)
 			enabled = append(enabled, k)
 		}
 	}

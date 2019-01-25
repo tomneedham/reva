@@ -13,15 +13,16 @@ func mkdirCommand() *command {
 	cmd := newCommand("mkdir")
 	cmd.Description = func() string { return "creates a folder" }
 	cmd.Action = func() error {
-		if cmd.NArg() == 0 {
+		if cmd.NArg() < 2 {
 			fmt.Println(cmd.Usage())
 			os.Exit(1)
 		}
 
 		fn := cmd.Args()[0]
+		provider := cmd.Args()[1]
 
 		ctx := context.Background()
-		client, err := getStorageProviderClient()
+		client, err := getStorageProviderClient(provider)
 		if err != nil {
 			return err
 		}

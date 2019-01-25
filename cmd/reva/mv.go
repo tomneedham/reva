@@ -13,16 +13,17 @@ func moveCommand() *command {
 	cmd := newCommand("mv")
 	cmd.Description = func() string { return "moves/rename a file/folder" }
 	cmd.Action = func() error {
-		if cmd.NArg() < 2 {
+		if cmd.NArg() < 3 {
 			fmt.Println(cmd.Usage())
 			os.Exit(1)
 		}
 
-		src := cmd.Args()[0]
-		dst := cmd.Args()[1]
+		provider := cmd.Args()[0]
+		src := cmd.Args()[1]
+		dst := cmd.Args()[2]
 
 		ctx := context.Background()
-		client, err := getStorageProviderClient()
+		client, err := getStorageProviderClient(provider)
 		if err != nil {
 			return err
 		}
